@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/share/sample/lambda/BulkDataOperations/BulkDataOperations.iml" filepath="$PROJECT_DIR$/share/sample/lambda/BulkDataOperations/BulkDataOperations.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/sample/annotations/DependencyChecker/PluginChecker/PluginChecker.iml" filepath="$PROJECT_DIR$/share/sample/annotations/DependencyChecker/PluginChecker/PluginChecker.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/sample/annotations/DependencyChecker/Plugins/Plugins.iml" filepath="$PROJECT_DIR$/share/sample/annotations/DependencyChecker/Plugins/Plugins.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/sample/annotations/Validator/Validator.iml" filepath="$PROJECT_DIR$/share/sample/annotations/Validator/Validator.iml" />
+      <module fileurl="file://$PROJECT_DIR$/aix/aix.iml" filepath="$PROJECT_DIR$/aix/aix.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/demo/applets/applets.iml" filepath="$PROJECT_DIR$/share/demo/applets/applets.iml" />
+      <module fileurl="file://$PROJECT_DIR$/macosx/native/jobjc/src/core/core.iml" filepath="$PROJECT_DIR$/macosx/native/jobjc/src/core/core.iml" />
+      <module fileurl="file://$PROJECT_DIR$/solaris/demo/demo.iml" filepath="$PROJECT_DIR$/solaris/demo/demo.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/doc/doc.iml" filepath="$PROJECT_DIR$/share/doc/doc.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/sample/forkjoin/forkjoin.iml" filepath="$PROJECT_DIR$/share/sample/forkjoin/forkjoin.iml" />
+      <module fileurl="file://$PROJECT_DIR$/macosx/native/jobjc/src/generator/generator.iml" filepath="$PROJECT_DIR$/macosx/native/jobjc/src/generator/generator.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/demo/java2d/java2d.iml" filepath="$PROJECT_DIR$/share/demo/java2d/java2d.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/demo/jfc/jfc.iml" filepath="$PROJECT_DIR$/share/demo/jfc/jfc.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/sample/jmx/jmx.iml" filepath="$PROJECT_DIR$/share/sample/jmx/jmx.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/demo/jvmti/jvmti.iml" filepath="$PROJECT_DIR$/share/demo/jvmti/jvmti.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/sample/lambda/lambda.iml" filepath="$PROJECT_DIR$/share/sample/lambda/lambda.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/lib/lib.iml" filepath="$PROJECT_DIR$/share/lib/lib.iml" />
+      <module fileurl="file://$PROJECT_DIR$/linux/linux.iml" filepath="$PROJECT_DIR$/linux/linux.iml" />
+      <module fileurl="file://$PROJECT_DIR$/macosx/macosx.iml" filepath="$PROJECT_DIR$/macosx/macosx.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/demo/management/management.iml" filepath="$PROJECT_DIR$/share/demo/management/management.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/sample/nio/nio.iml" filepath="$PROJECT_DIR$/share/sample/nio/nio.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/demo/nio/nio1.iml" filepath="$PROJECT_DIR$/share/demo/nio/nio1.iml" />
+      <module fileurl="file://$PROJECT_DIR$/macosx/native/jobjc/src/runtime-additions/runtime-additions.iml" filepath="$PROJECT_DIR$/macosx/native/jobjc/src/runtime-additions/runtime-additions.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/sample/scripting/scripting.iml" filepath="$PROJECT_DIR$/share/sample/scripting/scripting.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/demo/scripting/scripting1.iml" filepath="$PROJECT_DIR$/share/demo/scripting/scripting1.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/share.iml" filepath="$PROJECT_DIR$/share/share.iml" />
+      <module fileurl="file://$PROJECT_DIR$/solaris/solaris.iml" filepath="$PROJECT_DIR$/solaris/solaris.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/src.iml" filepath="$PROJECT_DIR$/.idea/src.iml" />
+      <module fileurl="file://$PROJECT_DIR$/macosx/native/jobjc/src/tests/tests.iml" filepath="$PROJECT_DIR$/macosx/native/jobjc/src/tests/tests.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/sample/try-with-resources/try-with-resources.iml" filepath="$PROJECT_DIR$/share/sample/try-with-resources/try-with-resources.iml" />
+      <module fileurl="file://$PROJECT_DIR$/share/sample/vm/vm.iml" filepath="$PROJECT_DIR$/share/sample/vm/vm.iml" />
+      <module fileurl="file://$PROJECT_DIR$/windows/windows.iml" filepath="$PROJECT_DIR$/windows/windows.iml" />
+    </modules>
+  </component>
+</project>
