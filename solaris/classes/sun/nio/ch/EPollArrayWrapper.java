@@ -53,6 +53,15 @@ import sun.security.action.GetIntegerAction;
  * this implementation we set data.fd to be the file descriptor that we
  * register. That way, we have the file descriptor available when we
  * process the events.
+ *
+ * JAVA中的NIO核心功能的实现类(Linux(最常用的操作系统))
+ * 此类是对于epoll的 功能的JAVA封装
+ * 并且提供了安全,高效的fd和事件管理功能(注册,注销,修改)
+ * 对JAVA中断机制的支持 和 高效轮询(这里基于反应堆模式)
+ * 但要注意 EPollArrayWrapper的使用方式是配合反应堆模式的
+ * 也就是只有一个线程调用epoll()。并且此线程只干这么一件事
+ *
+ * 真正的epoll实现细节需要JVM 中的C源码分析(也是调用linux 的epoll支持)
  */
 
 class EPollArrayWrapper {
@@ -60,9 +69,9 @@ class EPollArrayWrapper {
     private static final int EPOLLIN      = 0x001; // 000000000.....000000001(32位)
 
     // opcodes
-    private static final int EPOLL_CTL_ADD      = 1;
-    private static final int EPOLL_CTL_DEL      = 2;
-    private static final int EPOLL_CTL_MOD      = 3;
+    private static final int EPOLL_CTL_ADD      = 1; //新增事件
+    private static final int EPOLL_CTL_DEL      = 2; // 删除事件
+    private static final int EPOLL_CTL_MOD      = 3;   //更新事件 A->B
 
     // Miscellaneous constants
     private static final int SIZE_EPOLLEVENT  = sizeofEPollEvent(); // sizeof(struct event)
@@ -85,19 +94,20 @@ class EPollArrayWrapper {
     private final int epfd;
 
      // The epoll_event array for results from epoll_wait
-    private final AllocatedNativeObject pollArray; //AllocatedNativeObject是Java对本地内存块（在C语言中可以视为指针或数组）的对象表示。 它提供了一种方式，使Java能够安全地与在本地分配的内存块交互，而不直接暴露低级的内存操作。
+     //AllocatedNativeObject是Java对本地内存块（在C语言中可以视为指针或数组）的对象表示。 它提供了一种方式，使Java能够安全地与在本地分配的内存块交互，而不直接暴露低级的内存操作。它是为了保存已发生的epoll_event
+    private final AllocatedNativeObject pollArray;
 
     // Base address of the epoll_event array
     private final long pollArrayAddress; //pollArray 数组地址
 
     // The fd of the interrupt line going out
-    private int outgoingInterruptFD; // interrup out fd
+    private int outgoingInterruptFD; // 外部中断通信端 也就是A -> outgoingInterruptFD 写入信息
 
     // The fd of the interrupt line coming in
-    private int incomingInterruptFD;
+    private int incomingInterruptFD; // 内部中断接受端 也就是  -> incomingInterruptFD
 
     // The index of the interrupt FD
-    private int interruptedIndex;
+    private int interruptedIndex; // 发生中断请求后 此 epoll_event具体在 pollArray中index
 
     // Number of updated pollfd entries
     int updated; //  当调用epoll_wait后，某些文件描述符的状态可能发生了变化（例如，它们已经准备好进行读取或写入）。updated可能用于跟踪这些已经发生状态变化的文件描述符的数量。
@@ -106,7 +116,8 @@ class EPollArrayWrapper {
     private final Object updateLock = new Object();
 
     // number of file descriptors with registration changes pending
-    private int updateCount; // 当调用epoll_wait后，某些文件描述符的状态可能发生了变化（例如，它们已经准备好进行读取或写入）。updated可能用于跟踪这些已经发生状态变化的文件描述符的数量。
+    //updateCount 是已注册更改event的请求数量
+    private int updateCount;
 
     // file descriptors with registration changes pending
     private int[] updateDescriptors = new int[INITIAL_PENDING_UPDATE_SIZE]; // 当我们有一个或多个文件描述符需要更新时，我们可以将这些描述符的标识存放在这个数组中，然后在适当的时候批量处理它们。
@@ -217,6 +228,9 @@ class EPollArrayWrapper {
 
     /**
      * Update the events for a given file descriptor
+     * 核心方法 也是暴露方法一直 因为是包私有
+     * 给fd 设置感兴趣的event(如果是已经存在 那就是更新 如果是不存在 就是add)
+     * 但setInterest并不会直接和epoll交互 而是先预存起来
      */
     void setInterest(int fd, int mask) {  //mask 感兴趣的事件类型
         synchronized (updateLock) {
@@ -232,7 +246,8 @@ class EPollArrayWrapper {
 
             // events are stored as bytes for efficiency reasons
             byte b = (byte)mask; //强转成byte 丢掉高24位
-            assert (b == mask) && (b != KILLED);  // 为什么要检查 b == mask??
+            //(b == mask)的目的检查 进来的原mask的值就是byte范围  如果是b不是Killed
+            assert (b == mask) && (b != KILLED);
             setUpdateEvents(fd, b, false);
         }
     }
@@ -243,9 +258,9 @@ class EPollArrayWrapper {
     void add(int fd) {
         // force the initial update events to 0 as it may be KILLED by a
         // previous registration.
-        synchronized (updateLock) {
-            assert !registered.get(fd);
-            setUpdateEvents(fd, (byte)0, true);
+        synchronized (updateLock) { //锁住 updateLock 也就是对于fd 或者更改 fd的所关心的时间都排它
+            assert !registered.get(fd); // registered是个bitset 检查fd 是否已经存在 如果存在就抛
+            setUpdateEvents(fd, (byte)0, true); //force是为了解决复用性 也就是A fd 之前已经关闭了 但可以重启使用它(但可以拥有者不一样) 0是初始状态 无的意思
         }
     }
 
@@ -255,12 +270,12 @@ class EPollArrayWrapper {
     void remove(int fd) {
         synchronized (updateLock) {
             // kill pending and future update for this file descriptor
-            setUpdateEvents(fd, KILLED, false);
+            setUpdateEvents(fd, KILLED, false); //Killed 一种状态 只是被判断。但并不影响A的存在 就如一个物品被标识售卖 但可以被另外一个人拥有。没有物理删除(注意了这里只是对于事件的更改)
 
             // remove from epoll
-            if (registered.get(fd)) {
-                epollCtl(epfd, EPOLL_CTL_DEL, fd, 0);
-                registered.clear(fd);
+            if (registered.get(fd)) { //如果此fd 已经被注册到epoll 那么需要删除
+                epollCtl(epfd, EPOLL_CTL_DEL, fd, 0); //C native EpollCtl
+                registered.clear(fd); //bitSet clear
             }
         }
     }
@@ -273,9 +288,18 @@ class EPollArrayWrapper {
         pollArray.free();
     }
 
+    /**
+     * 核心方法
+     * poll只能单一线程调用 遵循反应堆模式设计(但如果是多线程调用只会拖后腿 因为会被linux epoll阻塞住 而线程的上下文切换也是一个很大的开销)
+     * updateRegistrations 会先处理已经申请修改(或新增)的fds和events
+     * 处理完之后就会被塞住epollWait 等待IO的准备就绪事件
+     * 如果就绪事件是 incomingInterruptFD 就证明了一个是 它要关闭epoll功能了
+     * 因为这个线程是调度线程也成BOSS线程
+     */
     int poll(long timeout) throws IOException {
-        updateRegistrations();
-        updated = epollWait(pollArrayAddress, NUM_EPOLLEVENTS, timeout, epfd);
+        updateRegistrations(); //处理已经注册待更新事件
+        //pollArrayAddress 是个C语言的数组 用于接受 epoll返回的事件 epoll_event
+        updated = epollWait(pollArrayAddress, NUM_EPOLLEVENTS, timeout, epfd); //这里会wait
         for (int i=0; i<updated; i++) {
             if (getDescriptor(i) == incomingInterruptFD) {
                 interruptedIndex = i;
@@ -292,30 +316,35 @@ class EPollArrayWrapper {
     private void updateRegistrations() {
         synchronized (updateLock) {
             int j = 0;
-            while (j < updateCount) {
-                int fd = updateDescriptors[j];
-                short events = getUpdateEvents(fd);
-                boolean isRegistered = registered.get(fd);
+            while (j < updateCount) {  //updateCount 是等待更新的文件描述符的数量
+                int fd = updateDescriptors[j]; //待更新的 fd
+                short events = getUpdateEvents(fd); //获得事件
+                boolean isRegistered = registered.get(fd); //如果此fd已经被注册
                 int opcode = 0;
 
-                if (events != KILLED) {
-                    if (isRegistered) {
+                if (events != KILLED) { //如果还有效
+                    /**
+                     * 检查 events 是否为0 也就是完全新注册
+                     * 如果不是 0并且已经注册到epoll 那么就证明 本此io变化是修改 不然就是删除的 因为已经是0 就是不关心任何even
+                     * 如果没注册 那么判断 是否存在感兴趣的事件 如果没有就给 0(暂时没有(完全新注册))
+                     */
+                    if (isRegistered) { // 如果已经注册到 epoll中了
                         opcode = (events != 0) ? EPOLL_CTL_MOD : EPOLL_CTL_DEL;
                     } else {
-                        opcode = (events != 0) ? EPOLL_CTL_ADD : 0;
+                        opcode = (events != 0) ? EPOLL_CTL_ADD : 0; //如果没有注册到epoll 当前的fd  并且是非初始状态 就添加事件类型 ,不然就是初始状态
                     }
-                    if (opcode != 0) {
-                        epollCtl(epfd, opcode, fd, events);
+                    if (opcode != 0) { // 不为0 就证明 当前fd是拥有具体的事件类型(包括删除)
+                        epollCtl(epfd, opcode, fd, events); //注册epoll事件
                         if (opcode == EPOLL_CTL_ADD) {
-                            registered.set(fd);
-                        } else if (opcode == EPOLL_CTL_DEL) {
+                            registered.set(fd); //已添加
+                        } else if (opcode == EPOLL_CTL_DEL) { //已结束
                             registered.clear(fd);
                         }
                     }
                 }
                 j++;
             }
-            updateCount = 0;
+            updateCount = 0;  // 更新完毕后重置等待更新的文件描述符计数器
         }
     }
 

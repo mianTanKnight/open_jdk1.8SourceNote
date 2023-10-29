@@ -57,7 +57,7 @@ class EPollSelectorImpl extends SelectorImpl
     protected int fd1;
 
     // The poll object
-    EPollArrayWrapper pollWrapper; // C中 epoll的JAVA封装
+    EPollArrayWrapper pollWrapper; // C中 epoll的JAVA封装 详细实现分析 @EPollArrayWrapper
 
     // Maps from file descriptors to keys
     private Map<Integer,SelectionKeyImpl> fdToKey; // 感兴趣的事件Key 拥有select 和 channel的引用
@@ -73,15 +73,8 @@ class EPollSelectorImpl extends SelectorImpl
      * Package private constructor called by factory method in
      * the abstract superclass Selector.
      * 在Java NIO中，Selector是一个对象，它可以监视多个SelectableChannel的I/O状态（例如SocketChannel或ServerSocketChannel）。
-     * select()方法是Selector的一个主要方法，用于检测哪些通道已经准备好进行I/O操作。
-     * 例如，考虑一个场景，你有多个SocketChannel，你想知道哪些已经准备好进行读或写操作。你可以将这些通道注册到一个Selector，然后调用select()方法来等待，直到至少有一个通道准备好了。
-     * 如果没有任何通道准备好，select()方法会阻塞，直到以下条件之一被满足：
-     * 至少有一个通道准备好了其对应的I/O操作。
-     * 其他线程调用了这个Selector的wakeup()方法。
-     * 调用了select(long timeout)方法并且指定的超时时间已经过去。
-     * 当前线程被中断。
-     * 在第2点中，wakeup()方法是如何工作的？这是通过内部的"wakeup"机制实现的。对于基于epoll的实现（如EPollSelectorImpl），这个"wakeup"机制通常使用一个无名管道实现。当wakeup()被调用时，会向这个管道写入数据。由于Selector也在监视这个管道，写入数据会导致select()方法返回，从而"唤醒"阻塞在那里的线程。
-     * 这种设计使得外部线程可以有效地打断正在等待I/O事件的线程，不论它是在等待什么。
+     * Selector是对象 但也是一个线程 它更像Boss总线
+     *
      */
     EPollSelectorImpl(SelectorProvider sp) throws IOException {
         super(sp);
