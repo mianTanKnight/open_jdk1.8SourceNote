@@ -98,7 +98,20 @@ import java.io.IOException;
  * all.  In any case, a selection operation will always use the interest-set
  * value that was current at the moment that the operation began.  </p>
  *
+ *SelectionKey是一个标识，代表着SelectableChannel（可选择通道）与Selector（选择器）之间的注册关系。
  *
+ * 每次通道注册到选择器时，就会创建一个选择键。只有当选择键被取消、其关联的通道被关闭，或者其关联的选择器被关闭时，这个选择键才会失效。
+ * 取消一个键并不会立即从选择器中移除它；相反，它会被加入到选择器的“已取消键集”中，等待在下一轮的选择操作中被移除。可以通过调用isValid方法来检测一个键是否仍然有效。
+ * 选择键包含两个操作集：
+ * “兴趣集”决定了在下一次选择操作时，哪些操作类别会被检测是否准备就绪。兴趣集在创建键时被初始化，并可之后通过interestOps(int)方法进行修改。
+ * “就绪集”指出了通道在哪些操作类别上已经准备就绪，可以进行非阻塞操作。就绪集在创建键时被置为零，并可能在选择操作中被更新，但不能直接修改。
+ * 选择键的就绪集表示通道已经准备好进行某些操作，但这并不保证执行这些操作时线程不会阻塞。就绪集在选择操作完成后最为准确，但随后可能因为外部事件或对通道的I/O操作而变得不准确。
+ * 此类定义了所有已知的操作集位，但特定通道支持哪些位取决于通道的类型。
+ * 每个SelectableChannel的子类定义了一个validOps()方法，它返回一个集合，标识了该通道支持的操作。尝试设置或测试一个通道不支持的操作集位将引发运行时异常。
+ * 在实际使用中，通常需要将应用程序特定的数据附加到选择键上，
+ * 例如，用于表示更高级别协议状态的对象，以响应准备就绪通知来实现该协议。因此，选择键允许将一个任意对象作为附件与键关联。可以通过attach方法附加对象，并通过attachment()方法检索。
+ * 选择键支持多线程并发使用。读取和写入兴趣集的操作通常与选择器的特定操作同步。如何进行同步依赖于具体实现：在一些简单的实现中，
+ * 读取或写入兴趣集可能会在选择操作进行时无限期地阻塞；而在高性能的实现中，读取或写入兴趣集可能只会短暂阻塞，或者根本不阻塞。无论如何，选择操作都会使用该操作开始时的兴趣集的当前值。
  * @author Mark Reinhold
  * @author JSR-51 Expert Group
  * @since 1.4
@@ -135,7 +148,7 @@ public abstract class SelectionKey {
 
     /**
      * Tells whether or not this key is valid.
-     *
+     * Key是否还有效  channel被关闭或selector被关闭
      * <p> A key is valid upon creation and remains so until it is cancelled,
      * its channel is closed, or its selector is closed.  </p>
      *

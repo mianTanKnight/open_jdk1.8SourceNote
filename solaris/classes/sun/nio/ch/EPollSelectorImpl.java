@@ -201,7 +201,7 @@ class EPollSelectorImpl extends SelectorImpl
         keys.add(ski);
     }
 
-    protected void implDereg(SelectionKeyImpl ski) throws IOException {
+    protected void implDereg(SelectionKeyImpl ski) throws IOException {  // SelectorKey 取消的实现
         assert (ski.getIndex() >= 0);
         SelChImpl ch = ski.channel;
         int fd = ch.getFDVal();
