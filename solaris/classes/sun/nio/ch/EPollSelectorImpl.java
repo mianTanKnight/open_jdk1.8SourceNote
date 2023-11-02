@@ -67,6 +67,11 @@ class EPollSelectorImpl extends SelectorImpl
 
     // Lock for interrupt triggering and clearing
     private final Object interruptLock = new Object(); //中断锁
+
+    /**
+     * interruptTriggered 变量用来区分 Selector 的 select() 方法是因为有 I/O 事件发生而返回，还是因为其他原因（如调用 wakeup()
+     * 方法或其他中断）被唤醒。这个标志对于控制 Selector 的行为和处理中断逻辑是必要的。在处理并发程序时，正确地管理这些状态是确保程序行为可预测和可控的关键
+     */
     private boolean interruptTriggered = false;
 
     /**
@@ -112,15 +117,20 @@ class EPollSelectorImpl extends SelectorImpl
         processDeregisterQueue(); //当前线程会先处理注销列队
         try {
             begin(); //注册中断支持
-            pollWrapper.poll(timeout); //调用 poll
+            /**
+             * poll的唤醒有两种情况
+             * 1: 就绪事件 >= 1
+             * 2: 中断通知
+             */
+            pollWrapper.poll(timeout);
         } finally {
-            end();
+            end(); //poll 有结果之后就清除中断
         }
         processDeregisterQueue(); //再次处理注销队列
         int numKeysUpdated = updateSelectedKeys(); //
-        if (pollWrapper.interrupted()) {
+        if (pollWrapper.interrupted()) { //中断本次epoll 清扫工作
             // Clear the wakeup pipe
-            pollWrapper.putEventOps(pollWrapper.interruptedIndex(), 0);
+            pollWrapper.putEventOps(pollWrapper.interruptedIndex(), 0); //注册关闭中断管道
             synchronized (interruptLock) {
                 pollWrapper.clearInterrupted();
                 IOUtil.drain(fd0);
@@ -133,22 +143,41 @@ class EPollSelectorImpl extends SelectorImpl
     /**
      * Update the keys whose fd's have been selected by the epoll.
      * Add the ready keys to the ready queue.
+     *
+     * 处理epoll 发生的事件 通知selectKey和 add to SelectKeys(如果之前没有的话)
      */
     private int updateSelectedKeys() {
-        int entries = pollWrapper.updated;
+        int entries = pollWrapper.updated; //已经准备好IO事件的数量
         int numKeysUpdated = 0;
         for (int i=0; i<entries; i++) {
-            int nextFD = pollWrapper.getDescriptor(i);
-            SelectionKeyImpl ski = fdToKey.get(Integer.valueOf(nextFD));
+            int nextFD = pollWrapper.getDescriptor(i); //获得 fd 这个fd是已经有准备好Io的 fd
+            /**
+             * 这里我们要弄清一个关系 fd和selectionKey的关系 其实是 channel和 selectionKey .channel 是 JAVA fd的实现
+             * fd和对应的 event 在 pollWrapper中维护 但 pollWrapper 并不知道 fd是那个 channel(也就是JAVA的封装)
+             * 那么这个对应关系就是  EPollSelectorImpl 在维护的
+             * 也就是 fdToKey在维护
+             *
+             */
+            SelectionKeyImpl ski = fdToKey.get(Integer.valueOf(nextFD)); //获得 封装的SelectionKey
             // ski is null in the case of an interrupt
             if (ski != null) {
+                //获得fd具体的事件
                 int rOps = pollWrapper.getEventOps(i);
-                if (selectedKeys.contains(ski)) {
-                    if (ski.channel.translateAndSetReadyOps(rOps, ski)) {
+                /**
+                 * selectedKeys 为已经准备IO事件 Keys集
+                 * 如果selectedKeys已经存在 就不需要再重复添加 因为 selectedKeys不会在乎次数 而只是是否存在
+                 * 把rops通知channel key 会更新 readySet中
+                 * 如果不存在就添加
+                 * 重点要理解 selectedKeys的作用
+                 *
+                 */
+                if (selectedKeys.contains(ski)) { //如果已经注册
+                    if (ski.channel.translateAndSetReadyOps(rOps, ski)) { // 通知 channel
                         numKeysUpdated++;
                     }
-                } else {
-                    ski.channel.translateAndSetReadyOps(rOps, ski);
+                } else { //如果 没有注册
+                    ski.channel.translateAndSetReadyOps(rOps, ski); //通知 channel ??
+                    //获取当前准备的事件 是否为感兴趣的事件
                     if ((ski.nioReadyOps() & ski.nioInterestOps()) != 0) {
                         selectedKeys.add(ski);
                         numKeysUpdated++;
@@ -160,8 +189,7 @@ class EPollSelectorImpl extends SelectorImpl
     }
 
     protected void implClose() throws IOException {
-        if (closed)
-            return;
+        if (closed) return;
         closed = true;
 
         // prevent further wakeup
@@ -192,9 +220,8 @@ class EPollSelectorImpl extends SelectorImpl
     }
 
     protected void implRegister(SelectionKeyImpl ski) {
-        if (closed)
-            throw new ClosedSelectorException();
-        SelChImpl ch = ski.channel;
+        if (closed) throw new ClosedSelectorException();
+        SelChImpl ch = ski.channel; //获得 channel
         int fd = Integer.valueOf(ch.getFDVal());
         fdToKey.put(fd, ski);
         pollWrapper.add(fd);
@@ -202,10 +229,10 @@ class EPollSelectorImpl extends SelectorImpl
     }
 
     protected void implDereg(SelectionKeyImpl ski) throws IOException {  // SelectorKey 取消的实现
-        assert (ski.getIndex() >= 0);
+        assert (ski.getIndex() >= 0); //如果不大于0 就证明已经处理过了
         SelChImpl ch = ski.channel;
-        int fd = ch.getFDVal();
-        fdToKey.remove(Integer.valueOf(fd));
+        int fd = ch.getFDVal(); //获得 fd
+        fdToKey.remove(Integer.valueOf(fd)); //移除selectKey
         pollWrapper.remove(fd);
         ski.setIndex(-1);
         keys.remove(ski);
@@ -216,18 +243,23 @@ class EPollSelectorImpl extends SelectorImpl
             ((SelChImpl)selch).kill();
     }
 
-    public void putEventOps(SelectionKeyImpl ski, int ops) {
+    public void putEventOps(SelectionKeyImpl ski, int ops) { //把fd和感兴趣的事件注册到epoll
         if (closed)
             throw new ClosedSelectorException();
         SelChImpl ch = ski.channel;
         pollWrapper.setInterest(ch.getFDVal(), ops);
     }
 
-    public Selector wakeup() {
+    /**
+     * wakeup 是个唤醒动作
+     * 也就是通过 pollWrapper 给中断管道发送中断信息
+     * @return
+     */
+    public Selector wakeup() { // epoll wait中断通知 唤醒wait的线程(单一线程)
         synchronized (interruptLock) {
-            if (!interruptTriggered) {
-                pollWrapper.interrupt();
-                interruptTriggered = true;
+            if (!interruptTriggered) { //如果没有中断过
+                pollWrapper.interrupt(); //那么通知中断管道
+                interruptTriggered = true; //更新为 中断型唤醒
             }
         }
         return this;

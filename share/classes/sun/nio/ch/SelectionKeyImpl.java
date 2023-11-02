@@ -34,8 +34,7 @@ import java.nio.channels.spi.*;
  * An implementation of SelectionKey for Solaris.
  */
 
-public class SelectionKeyImpl
-    extends AbstractSelectionKey
+public class SelectionKeyImpl extends AbstractSelectionKey
 {
 
     final SelChImpl channel;                            // package-private
@@ -62,13 +61,13 @@ public class SelectionKeyImpl
 
     int getIndex() {                                    // package-private
         return index;
-    }
+    } //在selector keys[index]
 
     void setIndex(int i) {                              // package-private
         index = i;
     }
 
-    private void ensureValid() {
+    private void ensureValid() {  //检查是否为有效
         if (!isValid())
             throw new CancelledKeyException();
     }
@@ -100,6 +99,16 @@ public class SelectionKeyImpl
     }
 
     public SelectionKey nioInterestOps(int ops) {
+        /**
+         * ~ 其实很绕
+         * 目的: 判断 ops 是否 不存在与channel Ops中. 注意这个不字
+         * 假设: 011. O01 |010(读写)
+         * 现在来了个 100 连接
+         *  ~011 = 100
+         * 100 & 100 !=0
+         * 如果来了个010
+         * 010 & 100 = 0 (因为位不同)
+         */
         if ((ops & ~channel().validOps()) != 0)
             throw new IllegalArgumentException();
         channel.translateAndSetInterestOps(ops, this);

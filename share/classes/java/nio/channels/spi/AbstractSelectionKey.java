@@ -38,16 +38,14 @@ import java.nio.channels.*;
  * @since 1.4
  */
 
-public abstract class AbstractSelectionKey
-    extends SelectionKey
-{
+public abstract class AbstractSelectionKey extends SelectionKey {
 
     /**
      * Initializes a new instance of this class.
      */
     protected AbstractSelectionKey() { }
 
-    private volatile boolean valid = true;
+    private volatile boolean valid = true; //是否有效
 
     public final boolean isValid() {
         return valid;
@@ -55,7 +53,7 @@ public abstract class AbstractSelectionKey
 
     void invalidate() {                                 // package-private
         valid = false;
-    }
+    } //注册销毁
 
     /**
      * Cancels this key.
@@ -70,7 +68,7 @@ public abstract class AbstractSelectionKey
         synchronized (this) {
             if (valid) {
                 valid = false;
-                ((AbstractSelector)selector()).cancel(this);
+                ((AbstractSelector)selector()).cancel(this); // 被代理出去了
             }
         }
     }

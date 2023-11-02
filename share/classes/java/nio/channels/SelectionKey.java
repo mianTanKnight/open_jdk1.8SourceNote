@@ -169,6 +169,9 @@ public abstract class SelectionKey {
      * selector's cancelled-key set, and therefore may block briefly if invoked
      * concurrently with a cancellation or selection operation involving the
      * same selector.  </p>
+     * 通知中断与chanel的连接 但不是selectionKey有channel的连接
+     * 而是select与channel的连接
+     * SelectionKey 更像粘合剂
      */
     public abstract void cancel();
 
@@ -188,6 +191,16 @@ public abstract class SelectionKey {
      *
      * @throws  CancelledKeyException
      *          If this key has been cancelled
+     *
+     *
+     * 返回的是 int
+     * 使用bit位储存ops
+     *
+     * 例:
+     * OP_READ 可能被定义为 1 << 0（即，二进制的 0001）。
+     * OP_WRITE 可能被定义为 1 << 2（即，二进制的 0100）。
+     *
+     * 然后再使用0xff 取出来
      */
     public abstract int interestOps();
 
@@ -213,7 +226,7 @@ public abstract class SelectionKey {
 
     /**
      * Retrieves this key's ready-operation set.
-     *
+     * 检查就绪集 此SelectKey
      * <p> It is guaranteed that the returned set will only contain operation
      * bits that are valid for this key's channel.  </p>
      *
@@ -297,6 +310,15 @@ public abstract class SelectionKey {
      *
      * @throws  CancelledKeyException
      *          If this key has been cancelled
+     *
+     * 是不是读准备好了
+     * 这里为什么不用等于号判断? 也就是 readyOps == OP_READ
+     * 是因为存在包含的情况 读写事都有 所以使用 & 运算
+     * 举个了例子
+     * 1001 (读写)
+     * 1001 & 0001 = 0001
+     * 如果没有
+     * 1000 & 0001  = 0000
      */
     public final boolean isReadable() {
         return (readyOps() & OP_READ) != 0;
@@ -320,6 +342,7 @@ public abstract class SelectionKey {
      *
      * @throws  CancelledKeyException
      *          If this key has been cancelled
+     * 同上
      */
     public final boolean isWritable() {
         return (readyOps() & OP_WRITE) != 0;
@@ -376,12 +399,14 @@ public abstract class SelectionKey {
 
     // -- Attachments --
 
+    /**
+     * attachment 为什么要用 volatile 修饰
+     * 目的当前是为了保障线程安全
+     * 原因是 注册attach和消费attach(有可能被其他线程更改) 不在一个线程环境
+     */
     private volatile Object attachment = null;
 
-    private static final AtomicReferenceFieldUpdater<SelectionKey,Object>
-        attachmentUpdater = AtomicReferenceFieldUpdater.newUpdater(
-            SelectionKey.class, Object.class, "attachment"
-        );
+    private static final AtomicReferenceFieldUpdater<SelectionKey,Object> attachmentUpdater = AtomicReferenceFieldUpdater.newUpdater(SelectionKey.class, Object.class, "attachment");
 
     /**
      * Attaches the given object to this key.

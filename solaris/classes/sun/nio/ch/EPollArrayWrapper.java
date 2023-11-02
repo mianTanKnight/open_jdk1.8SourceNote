@@ -293,7 +293,7 @@ class EPollArrayWrapper {
      * poll只能单一线程调用 遵循反应堆模式设计(但如果是多线程调用只会拖后腿 因为会被linux epoll阻塞住 而线程的上下文切换也是一个很大的开销)
      * updateRegistrations 会先处理已经申请修改(或新增)的fds和events
      * 处理完之后就会被塞住epollWait 等待IO的准备就绪事件
-     * 如果就绪事件是 incomingInterruptFD 就证明了一个是 它要关闭epoll功能了
+     * 如果就绪事件是 incomingInterruptFD 就证明了一个是 它要中断本次epoll
      * 因为这个线程是调度线程也成BOSS线程
      */
     int poll(long timeout) throws IOException {

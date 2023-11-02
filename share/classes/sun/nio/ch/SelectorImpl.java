@@ -40,7 +40,7 @@ public abstract class SelectorImpl extends AbstractSelector
 {
 
     // The set of keys with data ready for an operation
-    protected Set<SelectionKey> selectedKeys;
+    protected Set<SelectionKey> selectedKeys; // IO事件已经准备好的selectKey
 
     // The set of keys registered with this Selector
     protected HashSet<SelectionKey> keys;

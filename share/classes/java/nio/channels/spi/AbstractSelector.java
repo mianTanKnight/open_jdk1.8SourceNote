@@ -215,8 +215,12 @@ public abstract class AbstractSelector extends Selector {
      *
      *  AbstractInterruptibleChannel.blockedOn(interruptor);
      *  使用操作系统的支持 使用线程和interruptor 绑定
-     *
      *  使NIO支持JAVA的 interruptor特性
+     *
+     *
+     * 那么目的是什么呢: 如果一个已经被打中断标识的调用select()(select会调用begin)
+     * 那么JVM 会 调用 interruptor的 interrupt()
+     * select()因为 wakeup的原因会立即解除阻塞
      *
      *
      */
@@ -227,6 +231,7 @@ public abstract class AbstractSelector extends Selector {
                         AbstractSelector.this.wakeup();
                     }};
         }
+        //当前线程 也就是调用begin的boss线程
         AbstractInterruptibleChannel.blockedOn(interruptor);
         Thread me = Thread.currentThread();
         if (me.isInterrupted())
