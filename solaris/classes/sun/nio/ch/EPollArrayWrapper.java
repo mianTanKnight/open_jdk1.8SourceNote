@@ -68,14 +68,14 @@ class EPollArrayWrapper {
     // EPOLL_EVENTS
     private static final int EPOLLIN      = 0x001; // 000000000.....000000001(32位)
 
-    // opcodes
+    // opcodes  添加到Epoll的类型
     private static final int EPOLL_CTL_ADD      = 1; //新增事件
     private static final int EPOLL_CTL_DEL      = 2; // 删除事件
-    private static final int EPOLL_CTL_MOD      = 3;   //更新事件 A->B
+    private static final int EPOLL_CTL_MOD      = 3;  //更新事件 A->B
 
     // Miscellaneous constants
     private static final int SIZE_EPOLLEVENT  = sizeofEPollEvent(); // sizeof(struct event)
-    private static final int EVENT_OFFSET     = 0; // offset  应该event是在结构的位置  使用结构体指针- offset = event的指针
+    private static final int EVENT_OFFSET     = 0; // offset  是event在结构的位置  使用结构体指针- offset = event的指针
     private static final int DATA_OFFSET      = offsetofData(); // 同上
     private static final int FD_OFFSET        = DATA_OFFSET; //
     private static final int OPEN_MAX         = IOUtil.fdLimit(); //linux的设置的最大描述符数量
@@ -87,30 +87,37 @@ class EPollArrayWrapper {
     // Initial size of arrays for fd registration changes
     private static final int INITIAL_PENDING_UPDATE_SIZE = 64;
 
-    private static final int MAX_UPDATE_ARRAY_SIZE = AccessController.doPrivileged( //// maximum size of updatesLow 这段代码的目的是根据系统属性来限制updatesLow数组的最大大小
+    //// maximum size of updatesLow 这段代码的目的是根据系统属性来限制updatesLow数组的最大大小
+    private static final int MAX_UPDATE_ARRAY_SIZE = AccessController.doPrivileged(
         new GetIntegerAction("sun.nio.ch.maxUpdateArraySize", Math.min(OPEN_MAX, 64*1024)));
 
     // The fd of the epoll driver  epoll 的文件描述符
     private final int epfd;
 
      // The epoll_event array for results from epoll_wait
-     //AllocatedNativeObject是Java对本地内存块（在C语言中可以视为指针或数组）的对象表示。 它提供了一种方式，使Java能够安全地与在本地分配的内存块交互，而不直接暴露低级的内存操作。它是为了保存已发生的epoll_event
+     //AllocatedNativeObject是Java对本地内存块（在C语言中可以视为指针或数组）的对象表示。
+     // 它提供了一种方式，使Java能够安全地与在本地分配的内存块交互，而不直接暴露低级的内存操作。它是为了保存已发生的epoll_event
     private final AllocatedNativeObject pollArray;
 
     // Base address of the epoll_event array
-    private final long pollArrayAddress; //pollArray 数组地址
+    //pollArray 数组地址
+    private final long pollArrayAddress;
 
     // The fd of the interrupt line going out
-    private int outgoingInterruptFD; // 外部中断通信端 也就是A -> outgoingInterruptFD 写入信息
+    // 外部中断通信端 也就是A -> outgoingInterruptFD 写入信息
+    private int outgoingInterruptFD;
 
     // The fd of the interrupt line coming in
-    private int incomingInterruptFD; // 内部中断接受端 也就是  -> incomingInterruptFD
+    // 内部中断接受端 也就是  -> incomingInterruptFD
+    private int incomingInterruptFD;
 
     // The index of the interrupt FD
-    private int interruptedIndex; // 发生中断请求后 此 epoll_event具体在 pollArray中index
+    // 发生中断请求后 此 epoll_event具体在 pollArray中index
+    private int interruptedIndex;
 
     // Number of updated pollfd entries
-    int updated; //  当调用epoll_wait后，某些文件描述符的状态可能发生了变化（例如，它们已经准备好进行读取或写入）。updated可能用于跟踪这些已经发生状态变化的文件描述符的数量。
+    //  当调用epoll_wait后，某些文件描述符的状态可能发生了变化（例如，它们已经准备好进行读取或写入）。updated可能用于跟踪这些已经发生状态变化的文件描述符的数量。
+    int updated;
 
     // object to synchronize fd registration changes
     private final Object updateLock = new Object();
@@ -120,7 +127,8 @@ class EPollArrayWrapper {
     private int updateCount;
 
     // file descriptors with registration changes pending
-    private int[] updateDescriptors = new int[INITIAL_PENDING_UPDATE_SIZE]; // 当我们有一个或多个文件描述符需要更新时，我们可以将这些描述符的标识存放在这个数组中，然后在适当的时候批量处理它们。
+    // 当我们有一个或多个文件描述符需要更新时，我们可以将这些描述符的标识存放在这个数组中，然后在适当的时候批量处理它们。
+    private int[] updateDescriptors = new int[INITIAL_PENDING_UPDATE_SIZE];
 
     /**
      * eventsLow (不考虑eventsHigh，eventsHigh只是另一种存储方式，但设计目的与eventsLow相同)
@@ -128,9 +136,6 @@ class EPollArrayWrapper {
      * 例如: 如果 fd[1] = 100;
      * 那么 eventsLow[100] 就代表 fd1
      * 其Byte的二进制表示了其感兴趣的事件类型。
-     * 0b00000001 代表 Read
-     * 0b00000010 代表 Write
-     * 因此，0b00000011 就表示对Read和Write都感兴趣。
      */
     private final byte[] eventsLow = new byte[MAX_UPDATE_ARRAY_SIZE];
 
@@ -228,7 +233,7 @@ class EPollArrayWrapper {
 
     /**
      * Update the events for a given file descriptor
-     * 核心方法 也是暴露方法一直 因为是包私有
+     * 核心方法 也是暴露方法 因为是包私有
      * 给fd 设置感兴趣的event(如果是已经存在 那就是更新 如果是不存在 就是add)
      * 但setInterest并不会直接和epoll交互 而是先预存起来
      */
@@ -236,6 +241,7 @@ class EPollArrayWrapper {
         synchronized (updateLock) {
             // record the file descriptor and events
             int oldCapacity = updateDescriptors.length; // 需要修改事件的fd(也就是已注册的)
+            //这里需要支持 updateDescriptors 的扩容机制
             if (updateCount == oldCapacity) {  // 已经发生了事件的fd的数量  检查是否需要扩容
                 int newCapacity = oldCapacity + INITIAL_PENDING_UPDATE_SIZE;
                 int[] newDescriptors = new int[newCapacity];
