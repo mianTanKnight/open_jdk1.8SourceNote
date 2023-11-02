@@ -70,7 +70,7 @@ public abstract class AbstractSelectionKey
         synchronized (this) {
             if (valid) {
                 valid = false;
-                ((AbstractSelector)selector()).cancel(this);
+                ((AbstractSelector)selector()).cancel(this); // SelectionKey的Cancel()代理给selector
             }
         }
     }
