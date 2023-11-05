@@ -71,9 +71,7 @@ import java.nio.channels.spi.SelectorProvider;
  * @since 1.4
  */
 
-public abstract class ServerSocketChannel
-    extends AbstractSelectableChannel
-    implements NetworkChannel
+public abstract class ServerSocketChannel extends AbstractSelectableChannel implements NetworkChannel
 {
 
     /**
