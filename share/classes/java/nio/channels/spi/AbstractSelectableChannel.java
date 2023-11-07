@@ -47,6 +47,7 @@ import java.nio.channels.Selector;
  * abstract protected methods defined in this class need not synchronize
  * against other threads that might be engaged in the same operations.  </p>
  *
+ * 提供线程安全的保证 基础父类
  *
  * @author Mark Reinhold
  * @author Mike McCloskey
@@ -54,18 +55,17 @@ import java.nio.channels.Selector;
  * @since 1.4
  */
 
-public abstract class AbstractSelectableChannel
-    extends SelectableChannel
+public abstract class AbstractSelectableChannel extends SelectableChannel
 {
 
     // The provider that created this channel
-    private final SelectorProvider provider;
+    private final SelectorProvider provider;  // 工厂车间
 
     // Keys that have been created by registering this channel with selectors.
     // They are saved because if this channel is closed the keys must be
     // deregistered.  Protected by keyLock.
     //
-    private SelectionKey[] keys = null;
+    private SelectionKey[] keys = null; //与selectors绑定的SelectionKey 已经创建
     private int keyCount = 0;
 
     // Lock for key set and count
@@ -100,7 +100,7 @@ public abstract class AbstractSelectableChannel
     // -- Utility methods for the key set --
 
     private void addKey(SelectionKey k) {
-        assert Thread.holdsLock(keyLock);
+        assert Thread.holdsLock(keyLock); // 锁检查
         int i = 0;
         if ((keys != null) && (keyCount < keys.length)) {
             // Find empty element of key array
@@ -140,7 +140,7 @@ public abstract class AbstractSelectableChannel
                     keys[i] = null;
                     keyCount--;
                 }
-            ((AbstractSelectionKey)k).invalidate();
+            ((AbstractSelectionKey)k).invalidate();  // 使selectionKey失效
         }
     }
 
@@ -208,14 +208,19 @@ public abstract class AbstractSelectableChannel
                 throw new IllegalBlockingModeException();
             SelectionKey k = findKey(sel);
             if (k != null) {
-                k.interestOps(ops);
-                k.attach(att);
+                k.interestOps(ops); // 注册兴趣事件到selectKey
+                k.attach(att); // 注册回调对象
             }
-            if (k == null) {
+            if (k == null) { //channel 还没有绑定到 selector
                 // New registration
                 synchronized (keyLock) {
                     if (!isOpen())
                         throw new ClosedChannelException();
+                    /**
+                     * channel 会主动注册到 sel
+                     * selector  其实也有个注册动作
+                     * 是绑定 channel ops 和 att
+                     */
                     k = ((AbstractSelector)sel).register(this, ops, att);
                     addKey(k);
                 }
@@ -244,7 +249,7 @@ public abstract class AbstractSelectableChannel
             for (int i = 0; i < count; i++) {
                 SelectionKey k = keys[i];
                 if (k != null)
-                    k.cancel();
+                    k.cancel(); // 使用selecotionKey 取消 seletor会感知到
             }
         }
     }
