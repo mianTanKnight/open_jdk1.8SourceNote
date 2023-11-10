@@ -233,6 +233,19 @@ public abstract class AbstractSelectableChannel extends SelectableChannel
     // -- Closing --
 
     /**
+     * 在Java NIO中，implCloseChannel和implCloseSelectableChannel方法都是关于关闭通道（Channel）的，但它们位于不同的层级并有不同的职责：
+     * implCloseChannel 方法是AbstractSelectableChannel类中的一个方法，它是从AbstractInterruptibleChannel类继承来的。这个方法的职责是关闭通道，
+     * 并取消所有与该通道相关联的SelectionKey对象。取消SelectionKey意味着告诉Selector这个通道不再参与任何选择操作。这个方法是Channel接口中close方法的具体实现。它处理与所有选择键的解耦，并确保资源被适当地清理。
+     * implCloseSelectableChannel 是一个抽象方法，它在AbstractSelectableChannel类中定义，
+     * 必须由具体的SelectableChannel子类（如SocketChannel或ServerSocketChannel）来实现。这个方法的职责是执行关闭通道的具体操作，例如释放文件描述符或套接字。它是在implCloseChannel中被调用的，用于处理通道关闭时的资源释放和清理工作。
+     *
+     * 设计目的：
+     * 分层责任：implCloseChannel处理的是所有可选择通道共有的关闭操作，如取消注册的键。而implCloseSelectableChannel由具体的通道实现，处理特定于该类型通道的关闭逻辑。
+     * 资源清理：两者都关注于资源的释放，但implCloseSelectableChannel更专注于单个通道类型的资源，如特定的套接字资源。
+     * 抽象和具体实现分离：通过分离抽象方法和具体实现，可以在不同层次上更灵活地管理代码，允许更易于维护和扩展的设计
+     */
+
+    /**
      * Closes this channel.
      *
      * <p> This method, which is specified in the {@link
@@ -256,6 +269,7 @@ public abstract class AbstractSelectableChannel extends SelectableChannel
 
     /**
      * Closes this selectable channel.
+     * selectable channel 是个能注册到selector的 channel
      *
      * <p> This method is invoked by the {@link java.nio.channels.Channel#close
      * close} method in order to perform the actual work of closing the
@@ -275,11 +289,18 @@ public abstract class AbstractSelectableChannel extends SelectableChannel
 
     // -- Blocking --
 
-    public final boolean isBlocking() {
+    /**
+     * 当通道处于非阻塞模式时（即nonBlocking标志被设置为true），
+     * I/O操作会立即返回。如果在非阻塞模式下执行read操作且当前没有数据可读，
+     * 这个操作将会立即返回，而不是挂起等待数据到达。
+     * 同样地，如果执行write操作且不能立即写入所有数据，操作将会返回写入的数据量，即使这个数量小于请求写入的数据量。
+     */
+
+    public final boolean isBlocking() {  //是否是阻塞模式
         return !nonBlocking;
     }
 
-    public final Object blockingLock() {
+    public final Object blockingLock() {   //那么阻塞模式只是在注册范围？？
         return regLock;
     }
 
@@ -297,7 +318,7 @@ public abstract class AbstractSelectableChannel extends SelectableChannel
         synchronized (regLock) {
             if (!isOpen())
                 throw new ClosedChannelException();
-            boolean blocking = !nonBlocking;
+            boolean blocking = !nonBlocking; //默认非阻塞
             if (block != blocking) {
                 if (block && haveValidKeys())
                     throw new IllegalBlockingModeException();

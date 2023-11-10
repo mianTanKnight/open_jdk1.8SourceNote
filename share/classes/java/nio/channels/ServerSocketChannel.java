@@ -118,7 +118,7 @@ public abstract class ServerSocketChannel extends AbstractSelectableChannel impl
      */
     public final int validOps() {
         return SelectionKey.OP_ACCEPT;
-    }
+    }  //只处理连接事件
 
 
     // -- ServerSocket-specific operations --

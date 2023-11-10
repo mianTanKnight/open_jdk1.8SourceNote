@@ -115,13 +115,12 @@ class ServerSocketChannelImpl
 
     /**
      * ST_UNINITIALIZED (-1):
-     *
      * 这个状态表示通道尚未初始化。通道在创建后可能会处于这个状态，直到它被显式地设置为其他状态。
+     *
      * ST_INUSE (0):
-     *
      * 当通道正在被使用时，它会处于这个状态。这意味着通道已经初始化并且准备好进行 I/O 操作。
-     * ST_KILLED (1):
      *
+     * ST_KILLED (1):
      * 通道一旦关闭或被“杀死”就会进入这个状态。一旦进入这个状态，通道就不应再被用于 I/O 操作，任何试图对该通道进行操作的行为都应该被阻止。
      */
     // Channel state, increases monotonically
@@ -369,6 +368,13 @@ class ServerSocketChannelImpl
             if (n < 1)
                 return null;
 
+            /**
+             * 新的socket会被设置成阻塞的 也就是说 任何读写或者请求在 没有准备好之前都是阻塞的
+             * 但注意通常在NIO中 新的socket 会被注册到selector中
+             * 也就是说当此阻塞socket 被使用时 已经有了IO
+             * 在注册到选择器后，为了兼容选择器的工作方式，必须将其切换到非阻塞模式。
+             * 如果在注册到选择器之后仍然保持阻塞模式，那么选择器在尝试非阻塞地检查其状态时将不能正常工作。
+             */
             IOUtil.configureBlocking(newfd, true);
             InetSocketAddress isa = isaa[0];
             sc = new SocketChannelImpl(provider(), newfd, isa);
@@ -391,14 +397,27 @@ class ServerSocketChannelImpl
         IOUtil.configureBlocking(fd, block);
     }
 
+    /**
+     * 调用 implCloseSelectableChannel() 方法。
+     * 调用 nd.preClose(fd) 准备关闭通道。
+     * 如果通道在关闭前有线程正在阻塞在一个 accept() 调用上，那么这个线程会被中断。
+     * 检查通道是否已经注册到选择器上：
+     * 如果已注册，通道将继续其关闭流程，这可能涉及取消注册和清理选择键。
+     * 如果未注册，调用 kill() 方法直接关闭通道，并释放所有相关资源。
+     * @throws IOException
+     */
     protected void implCloseSelectableChannel() throws IOException {
         synchronized (stateLock) {
-            if (state != ST_KILLED)
-                nd.preClose(fd);
+            if (state != ST_KILLED)// 如果当前通道为正常
+                nd.preClose(fd); //先清扫资源
             long th = thread;
-            if (th != 0)
+            if (th != 0) //检查是否正在进行 accept
                 NativeThread.signal(th);
-            if (!isRegistered())
+            /**
+             * isRegistered() 方法检查通道是否已经注册到任何选择器（Selector）上。
+             * 如果通道已经注册到选择器，那么就意味着可能有一个或多个选择键（SelectionKey）与之关联，这些选择键需要被取消并且相应的资源需要被清理。
+             */
+            if (!isRegistered()) //如果此service通道没有被注册过？？
                 kill();
         }
     }
@@ -422,10 +441,27 @@ class ServerSocketChannelImpl
      */
     public boolean translateReadyOps(int ops, int initialOps,
                                      SelectionKeyImpl sk) {
+        /**
+         * 获得当前sk的兴趣集
+         * interestOps volatile 修饰
+         * int intOps = sk.nioInterestOps();
+         * 这一行获取了与 SelectionKey 关联的通道的兴趣操作集。interestOps 是通过 SelectionKey 设置的，
+         * 表示应用程序对哪些 I/O 事件感兴趣，如读（OP_READ）、写（OP_WRITE）、接受新连接（OP_ACCEPT）等。
+         * volatile 修饰符表示 interestOps 可以由多个线程访问和修改，保证了操作的可见性和顺序。
+         * int oldOps = sk.nioReadyOps();:
+         * 这代表了选择键上一次查询选择器（Selector）后报告的就绪操作集。readyOps 表示通道已经准备好进行的操作，比如可以读取数据或者可以写入数据。
+         * int newOps = initialOps;:
+         * initialOps 通常是上一次调用 select 方法后，通道已确定准备好的操作集。这可能是之前的 readyOps，或者在某些情况下可能是 0，表示没有任何操作就绪或通道刚刚被注册。
+         * newOps 开始时被设置为 initialOps，在接下来的代码中可能会根据新的 I/O 事件（由 ops 参数表示）来修改。
+         */
         int intOps = sk.nioInterestOps(); // Do this just once, it synchronizes
         int oldOps = sk.nioReadyOps();
         int newOps = initialOps;
 
+        /**
+         * if ((ops & Net.POLLNVAL) != 0) 这行代码检查 ops 参数（这个参数包含了 poll 调用返回的事件标志）中是否设置了 POLLNVAL 标志。
+         * ops & Net.POLLNVAL 是一个位运算，& 是按位与操作符，用于确定 POLLNVAL 标志是否被设置。如果 POLLNVAL 被设置，按位与操作的结果不会是 0，这表明文件描述符无效。
+         */
         if ((ops & Net.POLLNVAL) != 0) {
             // This should only happen if this channel is pre-closed while a
             // selection operation is in progress
@@ -433,18 +469,44 @@ class ServerSocketChannelImpl
             return false;
         }
 
-        if ((ops & (Net.POLLERR | Net.POLLHUP)) != 0) {
-            newOps = intOps;
+        /**
+         * 下列代码为了解决的问题：
+         * 为了保证在发生网络错误或连接挂起时，应用程序能够接收到通知并对此做出响应。
+         *
+         * 解决的问题：
+         * 如何确保错误和挂起事件不会被忽略？
+         * 错误和挂起事件可能需要立即的响应，因为它们可能影响到应用程序的整体状态和性能。
+         * 如何简化应用程序处理多种事件的逻辑？
+         * 将错误和挂起视为通道上的“就绪”操作，即使这些操作不直接对应于常规的I/O操作，也可以在应用程序的常规事件处理逻辑中处理这些事件。
+         *
+         * 解决核心思路：
+         * 统一处理机制：
+         * 通过将错误和挂起状态处理为一个通道上的就绪操作，应用程序可以在其事件处理循环中以一种统一的方式处理所有事件，包括正常的I/O操作和异常情况。
+         * 保守的方法：
+         * 当不确定具体发生了什么错误时，最保守的做法是假设所有感兴趣的操作都可能受到影响，因此将所有感兴趣的操作标记为就绪。
+         * 避免丢失事件：
+         *
+         * 通过将所有感兴趣的操作设置为就绪，确保了选择器在下一次选择操作时一定会返回这些键，这样应用程序就不会错过处理这些紧急事件的机会。
+         * 总的来说，这种设计模式体现了在面对不确定性和潜在的失败时，采取保守的策略来保证应用程序的鲁棒性和可靠性。
+         * 这是一种经典的错误处理机制，确保了在复杂的异步I/O环境中，错误和异常情况得到了适当的处理。
+         *
+         */
+        if ((ops & (Net.POLLERR | Net.POLLHUP)) != 0) { // 可以翻译成如下易为理解的 ops == net.pollerr ||  ops == pollhup
+            newOps = intOps; //
             sk.nioReadyOps(newOps);
-            return (newOps & ~oldOps) != 0;
+            return (newOps & ~oldOps) != 0; //检查newOps是否更新
         }
 
+        /**
+         * 判断是否是正常io时间 并且是accept
+         * 如果是 newOps add accept(使用位运算)
+         */
         if (((ops & Net.POLLIN) != 0) &&
             ((intOps & SelectionKey.OP_ACCEPT) != 0))
                 newOps |= SelectionKey.OP_ACCEPT;
 
         sk.nioReadyOps(newOps);
-        return (newOps & ~oldOps) != 0;
+        return (newOps & ~oldOps) != 0;  //检查newOps是否更新
     }
 
     public boolean translateAndUpdateReadyOps(int ops, SelectionKeyImpl sk) {
@@ -459,16 +521,19 @@ class ServerSocketChannelImpl
     int poll(int events, long timeout) throws IOException {
         assert Thread.holdsLock(blockingLock()) && !isBlocking();
 
+        /**
+         * lock 为channel锁 也就是进行IO 排他
+         */
         synchronized (lock) {
             int n = 0;
             try {
-                begin();
+                begin(); //中断支持
+                //channel的状态更改锁 也就是说channel 在关键状态的变化 目的是安全的更改占用线程？？？？
                 synchronized (stateLock) {
-                    if (!isOpen())
-                        return 0;
-                    thread = NativeThread.current();
+                    if (!isOpen()) return 0; //如果已经关闭了
+                    thread = NativeThread.current(); //好的占坑线程
                 }
-                n = Net.poll(fd, events, timeout);
+                n = Net.poll(fd, events, timeout); //这里是直接调用操作系统底层的poll
             } finally {
                 thread = 0;
                 end(n > 0);
@@ -483,11 +548,27 @@ class ServerSocketChannelImpl
     public void translateAndSetInterestOps(int ops, SelectionKeyImpl sk) {
         int newOps = 0;
 
+        /**
+         * POLLIN:
+         *
+         * 表示对应的文件描述符可以进行读操作而不会阻塞。对于网络编程来说，如果是流协议（如TCP），这意味着有数据可读；如果是数据报协议（如UDP），这意味着有数据报可读；对于一个监听socket，它意味着有新的连接请求。
+         * POLLOUT:
+         * 表示对应的文件描述符可以进行写操作而不会阻塞。对于大多数类型的文件描述符，输出缓冲区的空闲空间足够，可以接受新的写入数据。
+         * POLLERR:
+         * 表示对应的文件描述符发生错误。此事件总是被poll操作监视，无需在请求的事件中明确设置。
+         * POLLHUP:
+         * 表示对应的文件描述符挂起，例如当socket的一端已经关闭连接时，另一端会收到POLLHUP事件。
+         * POLLNVAL:
+         * 表示对应的文件描述符不是一个打开的文件描述符。如果请求poll操作的文件描述符没有被打开，或者是非法的，那么poll操作会返回此事件。
+         * POLLCONN:
+         *
+         * 这个标志不是POSIX标准的一部分，不过它通常被用来指示一个非阻塞的连接操作已经完成，或者一个监听socket准备好接受新的连接了。这个标志可能是特定系统或库为了方便起见添加的。
+         */
         // Translate ops
-        if ((ops & SelectionKey.OP_ACCEPT) != 0)
-            newOps |= Net.POLLIN;
+        if ((ops & SelectionKey.OP_ACCEPT) != 0)// ops 包含 selectionKey.OP_ACCEPT 连接事件
+            newOps |= Net.POLLIN; // 为什么会翻译成pollIn 因为serverSocket 只会有Op_accept 特性保证的 但在操作系统的视觉来说 就是 IN 有读事件发生了
         // Place ops into pollfd array
-        sk.selector.putEventOps(sk, newOps);
+        sk.selector.putEventOps(sk, newOps); //sk 可以取出channel 的fd 注册fd 和指定的newOps 到 epoll
     }
 
     public FileDescriptor getFD() {

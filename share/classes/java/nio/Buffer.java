@@ -33,6 +33,7 @@ import java.util.Spliterator;
  * <p> A buffer is a linear, finite sequence of elements of a specific
  * primitive type.  Aside from its content, the essential properties of a
  * buffer are its capacity, limit, and position: </p>
+ * buffer是线性的 有序的原始数据类型 ，除了内容之外 存在 capacity limit  position属性
  *
  * <blockquote>
  *
