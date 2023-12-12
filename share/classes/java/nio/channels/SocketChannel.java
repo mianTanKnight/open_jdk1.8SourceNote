@@ -108,6 +108,27 @@ import java.nio.channels.spi.SelectorProvider;
  * or write operation while an invocation of one of these methods is in
  * progress will block until that invocation is complete.  </p>
  *
+ * 关于全双工的概念
+ *
+ * 在 Java NIO 中，Channel 类（例如 SocketChannel）的全双工特性确实是基于操作系统层面对套接字的支持。让我们更详细地分析这一点：
+ *
+ * 操作系统套接字的全双工支持
+ * 操作系统套接字:
+ * 在操作系统层面，网络套接字（socket）支持全双工通信，意味着它们可以同时进行数据的发送和接收。
+ * 独立的输入输出流:
+ * 操作系统为每个网络套接字维护两个独立的数据流：一个用于发送数据，另一个用于接收数据。这两个数据流独立运作，允许套接字同时进行读写操作。
+ * Java NIO Channel 的作用
+ * Java中的抽象:
+ * 在 Java NIO 中，Channel（如 SocketChannel 或 ServerSocketChannel）是对这些底层系统套接字功能的高级抽象。
+ * 提供接口访问操作系统功能:
+ * Channel 提供了一系列方法，允许 Java 应用程序有效地访问和利用这些底层套接字的全双工功能。
+ * 非阻塞I/O:
+ * NIO 的 Channel 可以配置为非阻塞模式，这进一步增强了其灵活性，允许单线程处理多个通道，或在通道未准备好进行读写时继续执行其他任务。
+ * 结论 ：
+ * 因此，Channel 的全双工特性并不是 Channel 自身的属性，而是反映了它所基于的底层操作系统套接字的能力。
+ * Java NIO 的设计使得程序能够以更直接和高效的方式利用这些底层系统功能，同时提供了非阻塞和选择器（Selector）等机制，以支持更复杂的 I/O 操作场景。
+ *
+ *
  * @author Mark Reinhold
  * @author JSR-51 Expert Group
  * @since 1.4

@@ -39,6 +39,8 @@ import java.nio.ByteBuffer;
  * I/O operations may proceed concurrently with a write operation depends upon
  * the type of the channel. </p>
  *
+ * channel 也是串行的
+ *
  *
  * @author Mark Reinhold
  * @author JSR-51 Expert Group
@@ -99,6 +101,30 @@ public interface WritableByteChannel
      *
      * @throws  IOException
      *          If some other I/O error occurs
+     *
+     * write 方法将从给定的缓冲区 src 写入字节序列到这个通道中。
+     *
+     * 写入操作的尝试:
+     *
+     * 尝试将最多 r 字节写入通道，其中 r 是调用此方法时缓冲区中剩余的字节数，即 src.remaining()。
+     * 写入的字节序列:
+     *
+     * 假设写入长度为 n 的字节序列，其中 0 <= n <= r。这个字节序列将从缓冲区的索引 p 处开始传输，p 是调用此方法时缓冲区的位置。写入的最后一个字节的索引将是 p + n - 1。返回时，缓冲区的位置将等于 p + n；其限制不会改变。
+     * 写入的完成情况:
+     *
+     * 除非另有说明，写操作将只在写完所有请求的 r 字节后返回。某些类型的通道，根据它们的状态，可能只写入部分字节，甚至可能根本不写入任何字节。例如，处于非阻塞模式的套接字通道不能写入超出套接字输出缓冲区可用空间的字节。
+     * 方法调用的时机:
+     *
+     * 此方法可以随时调用。如果另一个线程已经在此通道上启动了写操作，则对此方法的调用将阻塞，直到第一个操作完成。
+     * 应用场景
+     * 非阻塞模式下的网络写入:
+     *
+     * 当通道（如 SocketChannel）处于非阻塞模式时，如果套接字的输出缓冲区已满，write 方法可能不会写入所有的数据。它可能只写入部分数据或甚至不写入任何数据，并立即返回。
+     * 阻塞模式下的文件写入:
+     *
+     * 当你的应用程序向文件通道（如 FileChannel）写入数据，并且通道是阻塞模式，那么 write 方法将尝试写入所有的数据，并在完成后返回。如果不能立即写入所有数据，方法会阻塞直到完成。
+     * 这些行为使得 NIO 在处理 I/O 操作时更加灵活，尤其是在处理网络 I/O 时。它允许程序根据网络或文件系统的当前状态灵活地写入数据。
+     *
      */
     public int write(ByteBuffer src) throws IOException;
 

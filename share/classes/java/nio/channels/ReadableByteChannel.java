@@ -39,6 +39,7 @@ import java.nio.ByteBuffer;
  * I/O operations may proceed concurrently with a read operation depends upon
  * the type of the channel. </p>
  *
+ * channel 的读操作是阻塞的 也就是串行化的
  *
  * @author Mark Reinhold
  * @author JSR-51 Expert Group
@@ -49,6 +50,7 @@ public interface ReadableByteChannel extends Channel {
 
     /**
      * Reads a sequence of bytes from this channel into the given buffer.
+     * 顺序读取 bytes 写入指定的 buffer
      *
      * <p> An attempt is made to read up to <i>r</i> bytes from the channel,
      * where <i>r</i> is the number of bytes remaining in the buffer, that is,
@@ -102,6 +104,60 @@ public interface ReadableByteChannel extends Channel {
      *
      * @throws  IOException
      *          If some other I/O error occurs
+     */
+    /**
+     * 从该通道中读取一系列字节到给定的缓冲区中。
+     *
+     * 尝试从通道中读取多达 r 字节，其中 r 是调用此方法时缓冲区中剩余的字节数，
+     * 即 dst.remaining()。
+     *
+     * 假设读取了长度为 n 的字节序列，其中 0 <= n <= r。
+     * 这个字节序列将被传输到缓冲区中，使得序列中的第一个字节位于索引 p，
+     * 最后一个字节位于索引 p + n - 1，这里的 p 是调用此方法时缓冲区的位置。
+     * 返回时缓冲区的位置将等于 p + n；其限制将不会改变。
+     *
+     * 读操作可能不会填满缓冲区，实际上可能根本不读取任何字节。
+     * 它是否这样做取决于通道的性质和状态。例如，处于非阻塞模式的套接字通道，
+     * 不能读取比套接字的输入缓冲区中立即可用的字节更多的字节；类似地，文件通道不能读取
+     * 比文件中剩余的字节更多的字节。但是，保证如果通道处于阻塞模式并且缓冲区中至少有一个字节剩余，
+     * 则此方法将阻塞直到至少读取一个字节。
+     *
+     * 此方法可以随时调用。如果另一个线程已经在此通道上启动了读操作，
+     * 则对此方法的调用将阻塞，直到第一个操作完成。
+     *
+     * @param dst
+     *        要传输字节的目标缓冲区
+     *
+     * @return 读取的字节数，可能为零，如果通道已达到流的末尾，则为 -1
+     *
+     * @throws NonReadableChannelException
+     *         如果此通道未打开进行读取
+     *
+     * @throws ClosedChannelException
+     *         如果此通道已关闭
+     *
+     * @throws AsynchronousCloseException
+     *         如果在读操作进行中另一个线程关闭了这个通道
+     *
+     * @throws ClosedByInterruptException
+     *         如果在读操作进行中另一个线程中断了当前线程，
+     *         从而关闭通道并设置当前线程的中断状态
+     *
+     * @throws IOException
+     *         如果发生其他 I/O 错误
+     *
+     *
+     *
+     * 不保证一定读取到数据:
+     *
+     * 当您调用 read 方法时，它并不保证一定能读取到数据。这取决于当时通道中是否有可用数据。
+     * 受限于缓冲区大小:
+     *
+     * 如果通道中有数据可读，read 方法也只会读取到您提供的输入缓冲区（ByteBuffer）所能容纳的数据量。换句话说，如果您的缓冲区大小为 100 字节，但通道中有 200 字节可读，那么 read 方法在这次调用中最多只能读取 100 字节。
+     * 非阻塞模式特性:
+     *
+     * 特别在非阻塞模式下，如果通道中没有足够的数据可供读取，read 方法可能一次不读取任何数据，并立即返回。
+     *
      */
     public int read(ByteBuffer dst) throws IOException;
 

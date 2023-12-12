@@ -11,5 +11,6 @@
     <orderEntry type="module" module-name="windows" />
     <orderEntry type="module" module-name="share" />
     <orderEntry type="module" module-name="generator" />
+    <orderEntry type="module" module-name="core" scope="TEST" />
   </component>
 </module>
