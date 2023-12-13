@@ -297,13 +297,13 @@ public abstract class Reference<T> {
         try {
             synchronized (lock) {
                 if (pending != null) {
-                    r = pending; // 如果pending不是null copy其引用  r -> pending
+                    r = pending; //  copy 链表头
                     // 'instanceof' might throw OutOfMemoryError sometimes
                     // so do this before un-linking 'r' from the 'pending' chain...
                     c = r instanceof Cleaner ? (Cleaner) r : null;  //检查对象 或者说是检查职责 如果是普通的reference 只需要操作连接 但如果是cleaner则证明有清理工作
                     // unlink 'r' from 'pending' chain
-                    pending = r.discovered; //  那么 r -> pending.discovered(原来 r 引用 pending的连接 但这个步骤就是断开了 ,会成为 r-> pending.discovered )
-                    r.discovered = null; // 删除peding ???
+                    pending = r.discovered; // JVM 会把 nextNode set到 discovered中 这就是典型的更新链表头
+                    r.discovered = null; // del
                 } else {
                     // The waiting on the lock may cause an OutOfMemoryError
                     // because it may try to allocate exception objects.
@@ -328,21 +328,40 @@ public abstract class Reference<T> {
         }
 
         // Fast path for cleaners
-        if (c != null) {
+        if (c != null) { //如果是clean 那就调用clean的功能 重点 chean不入队
             c.clean();
             return true;
         }
-
+        //入RefernceQueue
         ReferenceQueue<? super Object> q = r.queue;
         if (q != ReferenceQueue.NULL) q.enqueue(r);
         return true;
     }
 
+    /**
+     * 线程组（Thread Group）的概念
+     * 线程组是 Java 中的一个类（java.lang.ThreadGroup），它可以将多个线程组织在一起。每个线程都属于一个线程组。线程组可以包含线程和其他线程组，形成一种层级结构。
+     *
+     * 线程组的作用
+     * 组织：线程组提供了一种将相关线程组织在一起的方式。这在大型应用程序中可能很有用，特别是当需要对一组线程执行统一操作时（比如，一次性中断一组线程）。
+     *
+     * 安全和管理：线程组还可以用于安全管理，限制线程间的操作（比如，一个线程可能被禁止访问另一个线程组中的线程）。
+     *
+     * 为什么在 ReferenceHandler 中使用顶层线程组
+     * 隔离：将 ReferenceHandler 线程放入顶层线程组有助于将其与应用程序创建的其他线程隔离开来。这种隔离保证了 ReferenceHandler 线程的行为不会受到应用级别线程的影响，提高了 JVM 内部线程的可靠性和安全性。
+     *
+     * 避免干扰：由于 ReferenceHandler 是 JVM 内部用来处理引用的线程，它的正常运行对 JVM 的稳定性至关重要。将其放在顶层线程组有助于确保它不受用户定义线程的潜在干扰。
+     *
+     * 管理和监控的便利性：对于 JVM 的维护者来说，将这类内部线程放入顶层线程组可以使它们更易于管理和监控。
+     *
+     * 结论
+     * 简而言之，将 ReferenceHandler 这样的 JVM 内部线程放入顶层线程组主要是为了隔离和保护这些线程，确保它们的稳定运行，而不受应用程序线程的潜在影响。这是 JVM 设计者为保障 JVM 内部机制的安全性和稳定性所做的考虑。
+     */
     static {
         ThreadGroup tg = Thread.currentThread().getThreadGroup();
         for (ThreadGroup tgn = tg;
              tgn != null;
-             tg = tgn, tgn = tg.getParent());
+             tg = tgn, tgn = tg.getParent()); // 找到最顶级的线程组
         Thread handler = new ReferenceHandler(tg, "Reference Handler");
         /* If there were a special system-only priority greater than
          * MAX_PRIORITY, it would be used here
