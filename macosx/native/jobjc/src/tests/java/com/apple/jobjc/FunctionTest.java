@@ -76,6 +76,6 @@ public class FunctionTest extends PooledTestCase {
     }
 
     public static void main(final String[] args) {
-        junit.textui.TestRunner.run(FunctionTest.class);
+//        junit.textui.TestRunner.run(FunctionTest.class);
     }
 }

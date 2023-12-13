@@ -52,7 +52,6 @@ import java.security.PrivilegedAction;
  * Nontrivial cleaners are inadvisable since they risk blocking the
  * reference-handler thread and delaying further cleanup and finalization.
  *
- *
  * @author Mark Reinhold
  */
 
@@ -63,24 +62,25 @@ public class Cleaner
     // Dummy reference queue, needed because the PhantomReference constructor
     // insists that we pass a queue.  Nothing will ever be placed on this queue
     // since the reference handler invokes cleaners explicitly.
-    //
+    // 不会被使用得queue
     private static final ReferenceQueue<Object> dummyQueue = new ReferenceQueue<>();
 
     // Doubly-linked list of live cleaners, which prevents the cleaners
     // themselves from being GC'd before their referents
-    //
+    //构建 cleaner的双向链表
     static private Cleaner first = null;
 
     private Cleaner
         next = null,
         prev = null;
 
+    //标准的链表头插法
     private static synchronized Cleaner add(Cleaner cl) {
-        if (first != null) {
+        if (first != null) { //标准的头插法
             cl.next = first;
             first.prev = cl;
         }
-        first = cl;
+        first = cl; //更新first
         return cl;
     }
 
@@ -91,11 +91,11 @@ public class Cleaner
             return false;
 
         // Update list
-        if (first == cl) {
-            if (cl.next != null)
-                first = cl.next;
+        if (first == cl) { //如果删除的是头
+            if (cl.next != null) //检查是否存在next
+                first = cl.next; // 删除cl 也就是去掉引用
             else
-                first = cl.prev;
+                first = cl.prev; // cl.prev 默认是NULL 因为cl == first
         }
         if (cl.next != null)
             cl.next.prev = cl.prev;
