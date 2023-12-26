@@ -317,6 +317,150 @@ import java.util.*;
  *   }
  * }}</pre>
  *
+ * /**
+ *  * 一个{@link ExecutorService}，它使用可能多个池化线程之一执行每个提交的任务，
+ *  * 通常使用{@link Executors}工厂方法进行配置。
+ *  *
+ *  * <p>线程池解决了两个不同的问题：它们在执行大量异步任务时通常提供改善的性能，
+ *  * 这是由于减少了每个任务的调用开销，它们还提供了一种方法来限制和管理执行任务集时消耗的资源，
+ *  * 包括线程。每个{@code ThreadPoolExecutor}还维护一些基本统计信息，比如完成的任务数量。
+ *  *
+ *  * <p>为了在广泛的上下文中有用，这个类提供了许多可调整的参数和可扩展性钩子。
+ *  * 然而，程序员被敦促使用更方便的{@link Executors}工厂方法
+ *  * {@link Executors#newCachedThreadPool}（无界线程池，具有自动线程回收）、
+ *  * {@link Executors#newFixedThreadPool}（固定大小线程池）和
+ *  * {@link Executors#newSingleThreadExecutor}（单后台线程），这些方法预先配置了最常见用例的设置。
+ *  * 否则，在手动配置和调整此类时，请使用以下指南：
+ *  *
+ *  * <dl>
+ *  *
+ *  * <dt>核心和最大池大小</dt>
+ *  *
+ *  * <dd>一个{@code ThreadPoolExecutor}会根据由
+ *  * corePoolSize（参见{@link #getCorePoolSize}）和
+ *  * maximumPoolSize（参见{@link #getMaximumPoolSize}）设置的边界自动调整池大小（参见{@link #getPoolSize}）。
+ *  *
+ *  * 当在方法{@link #execute(Runnable)}中提交一个新任务，并且运行的线程少于corePoolSize时，
+ *  * 即使有其他工作线程空闲，也会创建一个新线程来处理请求。如果运行的线程多于corePoolSize但少于maximumPoolSize，
+ *  * 只有当队列已满时才会创建新线程。通过设置corePoolSize和maximumPoolSize相同，你创建了一个固定大小的线程池。
+ *  * 通过将maximumPoolSize设置为实际上无界的值，比如{@code Integer.MAX_VALUE}，你允许池适应任意数量的并发任务。
+ *  * 最典型的是，核心和最大池大小只在构造时设置，但它们也可以使用{@link #setCorePoolSize}和
+ *  * {@link #setMaximumPoolSize}动态更改。</dd>
+ *  *
+ *  * <dt>按需构建</dt>
+ *  *
+ *  * <dd>默认情况下，即使是核心线程最初也只在新任务到达时创建和启动，但可以使用方法{@link #prestartCoreThread}或
+ *  * {@link #prestartAllCoreThreads}动态覆盖这一点。如果你使用非空队列构建池，可能会想要预先启动线程。</dd>
+ *  *
+ *  * <dt>创建新线程</dt>
+ *  *
+ *  * <dd>使用{@link ThreadFactory}创建新线程。如果没有另外指定，将使用{@link Executors#defaultThreadFactory}，
+ *  * 它创建的线程都在同一个{@link ThreadGroup}中，并具有相同的{@code NORM_PRIORITY}优先级和非守护状态。
+ *  * 通过提供不同的ThreadFactory，你可以改变线程的名称、线程组、优先级、守护状态等。
+ *  * 如果{@code ThreadFactory}在被要求创建线程时失败，通过从{@code newThread}返回null，
+ *  * 执行器将继续，但可能无法执行任何任务。线程应该拥有"modifyThread" {@code RuntimePermission}。
+ *  * 如果使用池的工作线程或其他线程不具备这个权限，服务可能会降级：配置更改可能不会及时生效，
+ *  * 并且关闭的池可能仍处于可能但未完成终止的状态。</dd>
+ *  *
+ *  * <dt>保活时间</dt>
+ *  *
+ *  * <dd>如果池当前拥有超过corePoolSize的线程，如果这些线程空闲时间超过keepAliveTime（参见{@link #getKeepAliveTime(TimeUnit)}），
+ *  * 多余的线程将被终止。这提供了一种在池不活跃时减少资源消耗的方法。如果池后来变得更活跃，将构建新线程。
+ *  * 这个参数也可以使用方法{@link #setKeepAliveTime(long, TimeUnit)}动态更改。
+ *  * 使用{@code Long.MAX_VALUE} {@link TimeUnit#NANOSECONDS}的值实际上禁止空闲线程在关闭之前永远终止。
+ *  * 默认情况下，保活策略仅在有超过corePoolSize的线程时应用。但是方法{@link #allowCoreThreadTimeOut(boolean)}
+ *  * 可用于将此超时策略应用于核心线程，只要keepAliveTime值不为零。</dd>
+ *  *
+ *  * <dt>队列</dt>
+ *  *
+ *  * <dd>任何{@link BlockingQueue}可用于传输和保持提交的任务。此队列的使用与池大小的互动：
+ *  *
+ *  * <ul>
+ *  *
+ *  * <li>如果运行的线程少于corePoolSize，执行器总是倾向于添加一个新线程而不是排队。</li>
+ *  *
+ *  * <li>如果运行的线程等于或多于corePoolSize，执行器总是倾向于排队请求而不是添加一个新线程。</li>
+ *  *
+ *  * <li>如果请求不能排队，将创建一个新线程，除非这会超过maximumPoolSize，在这种情况下，任务将被拒绝。</li>
+ *  *
+ *  * </ul>
+ *  *
+ *  * 队列有三种一般策略：
+ *  * <ol>
+ *  *
+ *  * <li> <em>直接传递。</em> 工作队列的一个好的默认选择是{@link SynchronousQueue}，
+ *  * 它将任务传递给线程而不另外保留它们。在这里，如果没有线程立即可用来运行它，则尝试排队任务将失败，
+ *  * 因此将构建一个新线程。这种策略避免了在处理可能具有内部依赖的请求集时发生锁定。
+ *  * 直接传递通常需要无界的maximumPoolSizes，以避免新提交的任务被拒绝。
+ *  * 这反过来又允许在命令到达的平均速度超过它们可以被处理的速度时，线程增长无界。</li>
+ *  *
+ *  * <li><em>无界队列。</em> 使用无界队列（例如，没有预定义容量的{@link LinkedBlockingQueue}）
+ *  * 会导致所有corePoolSize线程都忙时新任务在队列中等待。因此，将永远不会创建超过corePoolSize的线程。
+ *  * （因此，maximumPoolSize的值实际上没有任何效果。）当每个任务完全独立于其他任务时，这可能是合适的，
+ *  * 因此任务不能影响彼此的执行；例如，在网页服务器中。虽然这种排队风格在平滑瞬时请求突发方面可能有用，
+ *  * 但它承认了在命令平均到达速度超过它们可以被处理的速度时，工作队列增长无界的可能性。</li>
+ *  *
+ *  * <li><em>有界队列。</em> 有界队列（例如，{@link ArrayBlockingQueue}）在与有限的maximumPoolSizes一起使用时，
+ *  * 有助于防止资源耗尽，但可能更难调整和控制。队列大小和最大池大小可以互相交换：使用大队列和小池最大限度地减少CPU使用、
+ *  * 操作系统资源和上下文切换开销，但可能导致人为降低吞吐量。如果任务经常阻塞（例如，如果它们是I/O绑定的），
+ *  * 系统可能能够为您允许的线程安排更多时间。使用小队列通常需要更大的池大小，这使得CPU更忙，
+ *  * 但可能遇到不可接受的调度开销，这也减少了吞吐量。</li>
+ *  *
+ *  * </ol>
+ *  *
+ *  * </dd>
+ *  *
+ *  * <dt>拒绝任务</dt>
+ *  *
+ *  * <dd>在方法{@link #execute(Runnable)}中提交的新任务将在执行器关闭时被<em>拒绝</em>，
+ *  * 以及当执行器对最大线程和工作队列容量都使用有限界限，并且饱和时。在任一情况下，
+ *  * {@code execute}方法调用其{@link RejectedExecutionHandler}的
+ *  * {@link RejectedExecutionHandler#rejectedExecution(Runnable, ThreadPoolExecutor)}方法。
+ *  * 提供了四种预定义的处理程序策略：
+ *  *
+ *  * <ol>
+ *  *
+ *  * <li>在默认的{@link ThreadPoolExecutor.AbortPolicy}中，处理程序在拒绝时抛出运行时{@link RejectedExecutionException}。</li>
+ *  *
+ *  * <li>在{@link ThreadPoolExecutor.CallerRunsPolicy}中，调用{@code execute}的线程本身运行任务。
+ *  * 这提供了一个简单的反馈控制机制，将减慢新任务提交的速度。</li>
+ *  *
+ *  * <li>在{@link ThreadPoolExecutor.DiscardPolicy}中，无法执行的任务简单地被丢弃。</li>
+ *  *
+ *  * <li>在{@link ThreadPoolExecutor.DiscardOldestPolicy}中，如果执行器没有关闭，
+ *  * 则丢弃工作队列头部的任务，然后重试执行（这可能再次失败，导致这一过程重复。）</li>
+ *  *
+ *  * </ol>
+ *  *
+ *  * 可以定义和使用其他类型的{@link RejectedExecutionHandler}类。这样做需要一些注意，
+ *  * 尤其是当策略被设计为仅在特定容量或排队策略下工作时。</dd>
+ *  *
+ *  * <dt>钩子方法</dt>
+ *  *
+ *  * <dd>这个类提供了{@code protected}可重写的{@link #beforeExecute(Thread, Runnable)}和
+ *  * {@link #afterExecute(Runnable, Throwable)}方法，这些方法在每个任务执行前后调用。
+ *  * 这些可以用来操纵执行环境；例如，重新初始化ThreadLocals、收集统计数据或添加日志条目。
+ *  * 此外，可以重写方法{@link #terminated}以执行Executor完全终止后需要进行的任何特殊处理。
+ *  *
+ *  * <p>如果钩子或回调方法抛出异常，内部工作线程可能反过来失败并突然终止。</dd>
+ *  *
+ *  * <dt>队列维护</dt>
+ *  *
+ *  * <dd>方法{@link #getQueue()}允许访问工作队列以进行监控和调试。
+ *  * 强烈不鼓励将此方法用于任何其他目的。提供了两种方法，{@link #remove(Runnable)}和{@link #purge}，
+ *  * 可用于在大量排队任务变得取消时协助存储回收。</dd>
+ *  *
+ *  * <dt>终结</dt>
+ *  *
+ *  * <dd>不再在程序中引用并且没有剩余线程的池将自动被{@code shutdown}。
+ *  * 如果您希望确保即使用户忘记调用{@link #shutdown}，未引用的池也会被回收，
+ *  * 那么您必须安排未使用的线程最终死亡，通过设置适当的保活时间，使用零核心线程的下限和/或设置
+ *  * {@link #allowCoreThreadTimeOut(boolean)}。  </dd>
+ *  *
+ *  * </dl>
+ *  *
+ *  * <p><b>扩展示例</
+ *
  * @since 1.5
  * @author Doug Lea
  */
@@ -377,22 +521,78 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * we can only terminate if, after seeing that it is empty, we see
      * that workerCount is 0 (which sometimes entails a recheck -- see
      * below).
+     *
+     * 主要的池控制状态`ctl`是一个原子整数，封装了两个概念性字段：
+     *   `workerCount`，表示有效的线程数量；
+     *   `runState`，表示线程池的运行状态，如运行中、正在关闭等。
+     *
+     * 为了将这两个字段封装到一个整数中，我们将`workerCount`的限制为(2^29)-1（大约5亿）个线程，
+     * 而不是(2^31)-1（20亿）个线程，后者在理论上是可表示的。如果将来这成为问题，
+     * 可以将这个变量改为`AtomicLong`，并调整下面的位移/掩码常量。但在需要之前，
+     * 使用整数会使代码更快一些，也更简单。
+     *
+     * `workerCount`是被允许启动且未被允许停止的工作线程数量。这个值可能与实际的活跃线程数暂时不同，
+     * 例如当`ThreadFactory`在被要求时无法创建线程，以及退出线程在终止前仍在执行簿记工作时。
+     * 用户可见的池大小报告为工作线程集的当前大小。
+     *
+     * `runState`提供主要的生命周期控制，它有以下几种值：
+     *
+     *   RUNNING：接受新任务并处理队列中的任务
+     *   SHUTDOWN：不接受新任务，但处理队列中的任务
+     *   STOP：不接受新任务，不处理队列中的任务，并中断进行中的任务
+     *   TIDYING：所有任务已终止，workerCount为零，
+     *            正在转换到TIDYING状态的线程将运行terminated()钩子方法
+     *   TERMINATED：terminated()已完成
+     *
+     * 这些值之间的数值顺序很重要，以允许有序比较。`runState`随时间单调增加，
+     * 但不需要经历每个状态。状态转换包括：
+     *
+     *   RUNNING -> SHUTDOWN
+     *      在调用shutdown()时发生，也可能在finalize()中隐式发生
+     *   (RUNNING or SHUTDOWN) -> STOP
+     *      在调用shutdownNow()时发生
+     *   SHUTDOWN -> TIDYING
+     *      当队列和池都为空时发生
+     *   STOP -> TIDYING
+     *      当池为空时发生
+     *   TIDYING -> TERMINATED
+     *      当terminated()钩子方法完成时发生
+     *
+     * 等待在awaitTermination()中的线程将在状态达到TERMINATED时返回。
+     *
+     * 从SHUTDOWN到TIDYING的转换不如你希望的那样直接，因为在SHUTDOWN状态期间，
+     * 队列可能在非空后变为空，反之亦然，但我们只能在看到它为空后，再看到workerCount为0时终止
+     * （这有时需要重新检查 —— 见下文）。
+     *
+     *
      */
+// ThreadPoolExecutor 中 ctl 变量的实现
     private final AtomicInteger ctl = new AtomicInteger(ctlOf(RUNNING, 0));
-    private static final int COUNT_BITS = Integer.SIZE - 3;
-    private static final int CAPACITY   = (1 << COUNT_BITS) - 1;
 
-    // runState is stored in the high-order bits
-    private static final int RUNNING    = -1 << COUNT_BITS;
-    private static final int SHUTDOWN   =  0 << COUNT_BITS;
-    private static final int STOP       =  1 << COUNT_BITS;
-    private static final int TIDYING    =  2 << COUNT_BITS;
-    private static final int TERMINATED =  3 << COUNT_BITS;
+    // COUNT_BITS 表示用于 workerCount 的位数
+    private static final int COUNT_BITS = Integer.SIZE - 3; // Integer.SIZE 是 32，所以 COUNT_BITS 是 29
+
+    // CAPACITY 是 workerCount 可以使用的最大值，由 COUNT_BITS 确定
+    // (1 << COUNT_BITS) 是将 1 左移 29 位，然后减去 1 得到 29 个连续的 1，二进制表示为 0001 1111 1111 1111 1111 1111 1111 1110
+    private static final int CAPACITY = (1 << COUNT_BITS) - 1;
+
+    // runState 存储在 ctl 的高位，用不同的值表示不同的状态
+    private static final int RUNNING = -1 << COUNT_BITS;  // 所有位都是 1，左移 29 位后，变成 1110 0000 0000 0000 0000 0000 0000 0000
+    private static final int SHUTDOWN = 0 << COUNT_BITS;  // 所有位都是 0，结果仍然是 0
+    private static final int STOP = 1 << COUNT_BITS;      // 二进制 1，左移 29 位，变成 0010 0000 0000 0000 0000 0000 0000 0000
+    private static final int TIDYING = 2 << COUNT_BITS;   // 二进制 10，左移 29 位，变成 0100 0000 0000 0000 0000 0000 0000 0000
+    private static final int TERMINATED = 3 << COUNT_BITS; // 二进制 11，左移 29 位，变成 0110 0000 0000 0000 0000 0000 0000 0000
 
     // Packing and unpacking ctl
-    private static int runStateOf(int c)     { return c & ~CAPACITY; }
-    private static int workerCountOf(int c)  { return c & CAPACITY; }
+    // 从 ctl 提取 runState，通过将 ctl 与 ~CAPACITY 进行与操作，清除低 29 位，保留 runState 高位
+    private static int runStateOf(int c) { return c & ~CAPACITY; }
+
+    // 从 ctl 提取 workerCount，通过将 ctl 与 CAPACITY 进行与操作，清除 runState 高位，保留 workerCount 低位
+    private static int workerCountOf(int c) { return c & CAPACITY; }
+
+    // 组合 runState 和 workerCount 为 ctl，通过或操作合并
     private static int ctlOf(int rs, int wc) { return rs | wc; }
+
 
     /*
      * Bit field accessors that don't require unpacking ctl.

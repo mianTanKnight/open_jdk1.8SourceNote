@@ -65,7 +65,7 @@ public class ReferenceQueue<T> {
                 return false;
             }
             assert queue == this;
-            r.queue = ENQUEUED;
+            r.queue = ENQUEUED; //释放对queue的引用
             r.next = (head == null) ? r : head;
             head = r;
             queueLength++;
