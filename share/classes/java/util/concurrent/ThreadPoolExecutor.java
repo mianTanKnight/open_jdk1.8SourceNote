@@ -659,6 +659,37 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * also hold mainLock on shutdown and shutdownNow, for the sake of
      * ensuring workers set is stable while separately checking
      * permission to interrupt and actually interrupting.
+     * /**
+     *  * 访问工作线程集合及相关记录时持有的锁。
+     *  * 虽然我们可以使用某种并发集合，但使用锁通常更可取。
+     *  * 其中一个原因是这样可以序列化interruptIdleWorkers，
+     *  * 避免在关闭过程中不必要的中断风暴。
+     *  * 否则，正在退出的线程会并发地中断那些尚未被中断的线程。
+     *  * 这也简化了largestPoolSize等相关统计记录的一些工作。
+     *  * 我们还在shutdown和shutdownNow时持有mainLock，
+     *  * 以确保在分别检查中断权限和实际进行中断时，工作线程集合是稳定的。
+     *  *
+     *  mainLock 的作用
+     * mainLock 是 ThreadPoolExecutor 中的一个锁，它的作用是保护线程池的整体状态，尤其是工作线程集合（workers set）和相关的统计信息。
+     * 这个锁不是用来控制单个工作线程的行为，而是用来确保线程池级别的操作（如关闭线程池、添加或移除工作线程）是线程安全的。下面是 mainLock 的几个主要用途：
+     *
+     * 保护线程集合：当添加或移除工作线程时，需要确保这些操作不会相互冲突，以保持线程池的一致性和稳定性。
+     *
+     * 序列化 interruptIdleWorkers：这有助于避免在关闭线程池时产生大量不必要的中断。通过序列化这个过程，可以更加有序地中断空闲线程。
+     *
+     * 统计信息维护：简化了对 largestPoolSize 等统计数据的跟踪和更新。
+     *
+     * 在关闭操作中的作用：在执行 shutdown 和 shutdownNow 操作时，mainLock 确保在检查中断权限和实际执行中断之前，工作线程集合是稳定的。
+     *
+     * 为什么使用重入锁（ReentrantLock）
+     * ReentrantLock 是一种灵活的锁机制，它允许锁的重入，即同一个线程可以多次获取同一个锁。在线程池的上下文中，
+     * 可能会有一些复杂的锁定方案，其中一个操作可能需要多次获取同一个锁。使用 ReentrantLock 可以简化这种复杂操作的锁管理，同时保持足够的灵活性和性能。
+     *
+     * 结论
+     * 总之，mainLock 用于保护线程池级别的状态和操作，而 Worker 类中的 AQS 锁状态是用于管理单个工作线程的中断和生命周期。
+     * 这两种锁机制服务于不同的目的，共同确保了线程池的稳定和高效运行。
+     *
+     *
      */
     private final ReentrantLock mainLock = new ReentrantLock();
 
@@ -791,6 +822,30 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * the thread actually starts running tasks, we initialize lock
      * state to a negative value, and clear it upon start (in
      * runWorker).
+     *  * Worker类主要用于维护运行任务的线程的中断控制状态，以及其他一些次要的记录。
+     *  * 这个类巧妙地扩展了AbstractQueuedSynchronizer，
+     *  * 以简化在每个任务执行周围获取和释放锁的操作。
+     *  * 这样做可以防止原本意图唤醒等待任务的工作线程的中断，
+     *  * 而误中断了正在运行的任务。
+     *  * 我们实现了一个简单的非重入的互斥锁，
+     *  * 而不是使用ReentrantLock，因为我们不希望工作任务在调用池控制方法（如setCorePoolSize）时能够重新获取锁。
+     *  * 此外，为了在线程实际开始运行任务之前抑制中断，
+     *  * 我们将锁状态初始化为一个负值，并在开始时（在runWorker中）清除它。
+     *
+     *  Worker 继承 AbstractQueuedSynchronizer (AQS)
+     * Worker 类继承自 AQS 主要是为了利用 AQS 提供的同步机制来管理线程的状态，特别是在中断控制方面。这里的关键点是如何处理线程池的关闭和线程中断请求，同时确保正在执行的任务不会受到不适当的中断。
+     *
+     * 中断管理
+     * 在一个线程池中，当发出关闭请求时（比如调用 shutdown() 或 shutdownNow()），通常需要逐步停止线程的执行。
+     * 这时，线程池会向空闲线程发送中断信号。但是，对于那些正在执行任务的线程，我们不希望它们立即响应中断，因为这可能会导致正在执行的任务被提前终止。
+     * 通过 Worker 类中的锁机制，可以确保：
+     * 正在执行任务的线程不会立即中断：
+     * 当线程正在执行任务时，它会持有一个锁。如果在这期间线程收到中断信号，这个中断不会立即生效，因为线程正在忙碌状态。这样可以保证任务能够完成。
+     * 任务完成后响应中断： 一旦任务执行完成，线程会释放锁。这时，如果有之前的中断信号，线程可以在释放锁后响应这个中断，进行相应的中断处理（比如退出）。
+     * 结论
+     * 总的来说，您的理解是正确的。Worker 类通过继承 AQS，
+     * 使用了一个简单的锁机制来确保线程在处理关闭和中断请求时的状态是安全的。这样，线程池可以更加稳健地管理线程的生命周期，确保即使在关闭的情况下，正在执行的任务也能够正确完成。
+     *
      */
     private final class Worker
         extends AbstractQueuedSynchronizer
@@ -814,6 +869,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          * @param firstTask the first task (null if none)
          */
         Worker(Runnable firstTask) {
+            //设成-1 会保证当前任务一定会被执行之后再响应其他命令
             setState(-1); // inhibit interrupts until runWorker
             this.firstTask = firstTask;
             this.thread = getThreadFactory().newThread(this);
@@ -892,14 +948,24 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * termination possible -- reducing worker count or removing tasks
      * from the queue during shutdown. The method is non-private to
      * allow access from ScheduledThreadPoolExecutor.
+     * 如果满足以下条件之一，则转换到 TERMINATED 状态：(SHUTDOWN 状态且线程池和队列都为空)或者(STOP 状态且线程池为空)。
+     * 如果符合终止条件但 workerCount 非零，则中断一个空闲工作线程以确保关闭信号得以传播。
+     * 任何可能使终止成为可能的行为之后都必须调用此方法 —— 减少工作线程数或在关闭期间从队列中移除任务。
+     * 此方法非私有，以允许 ScheduledThreadPoolExecutor 访问。
+     *
+     * RUNNING -> SHUTDOWN
+     *    |          |
+     *    v          v
+     *  STOP ----> TIDYING -> TERMINATED
      */
     final void tryTerminate() {
         for (;;) {
             int c = ctl.get();
-            if (isRunning(c) ||
-                runStateAtLeast(c, TIDYING) ||
-                (runStateOf(c) == SHUTDOWN && ! workQueue.isEmpty()))
+            if (isRunning(c) || // 如果正在运行
+                runStateAtLeast(c, TIDYING) || // 或者已经完全停止
+                (runStateOf(c) == SHUTDOWN && ! workQueue.isEmpty())) // 或者已经通知停止但还存在任务没有处理完
                 return;
+            //如果还存在核心工作线程
             if (workerCountOf(c) != 0) { // Eligible to terminate
                 interruptIdleWorkers(ONLY_ONE);
                 return;
@@ -1096,6 +1162,45 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * maximumPoolSize. (A boolean indicator is used here rather than a
      * value to ensure reads of fresh values after checking other pool
      * state).
+     *
+     *  * 检查在当前线程池状态和给定的界限（核心线程数或最大线程数）下，
+     *  * 是否可以添加一个新的工作线程。如果可以，相应地调整工作线程计数，
+     *  * 并且如果可能，创建并启动一个新的工作线程，执行 firstTask 作为其第一个任务。
+     *  * 如果线程池已停止或符合关闭条件，此方法返回 false。
+     *  * 如果线程工厂在被请求时无法创建线程，也返回 false。
+     *  * 如果线程创建失败，无论是因为线程工厂返回 null，
+     *  * 还是由于异常（通常是 Thread.start() 中的 OutOfMemoryError），
+     *  * 我们会进行干净的回滚。
+     *  *
+     *  * @param firstTask 新线程应该首先运行的任务（如果没有则为 null）。
+     *  * 当线程数量少于 corePoolSize 时（在这种情况下我们总是启动一个线程），
+     *  * 或者当队列已满时（在这种情况下我们必须绕过队列），工作线程是通过初始任务（在方法 execute() 中）
+     *  * 来创建的。通常通过 prestartCoreThread 创建最初空闲的线程，
+     *  * 或者替换其他即将死亡的工作线程。
+     *  *
+     *  * @param core 如果为 true，则使用 corePoolSize 作为界限，
+     *  * 否则使用 maximumPoolSize。（这里使用布尔指标而不是值，
+     *  * 是为了确保在检查其他线程池状态后能读取到最新的值）。
+     *  * @return 如果成功则返回 true
+     *  "即将死亡的线程"（dying worker）这个术语在 Java 线程池的上下文中通常指的是那些即将结束其生命周期的线程。
+     *             在 ThreadPoolExecutor 的环境中，这可能发生在几种不同的情况下：
+     *
+     * 1. 线程执行完任务并达到空闲超时
+     * 如果线程池配置了空闲超时时间（keepAliveTime），线程在完成任务后会在一段时间内等待新任务。
+     *             如果在这段空闲时间内没有新任务到来，线程将结束其生命周期并从线程池中移除。这种线程在等待期间可以被视为“即将死亡”的，因为它们即将因超时而结束。
+     *
+     * 2. 线程遇到未捕获的异常
+     * 如果一个线程在执行任务时遇到了未被捕获的异常，这可能导致线程终止。
+     *             除非线程池的配置能够捕获这些异常并启动新的线程，否则这样的线程可以被认为是“即将死亡”的，因为它们即将因异常而结束。
+     *
+     * 3. 线程池正在关闭
+     * 当线程池执行关闭操作（如调用 shutdown() 或 shutdownNow()）时，
+     *             它会开始逐步停止所有活动线程。这些线程在关闭过程中可以被认为是“即将死亡”的，因为它们即将被有序地终止。
+     *
+     * 结论
+     * 在线程池的管理和维护过程中，理解“即将死亡”的线程是重要的，
+     *             因为这关系到线程池是否需要创建新的线程来替代这些即将退出的线程，以保持池中的线程数量和处理能力。
+     *             在 ThreadPoolExecutor 的实现中，这种替换通常是自动进行的，以确保线程池可以继续有效地处理提交的任务。
      * @return true if successful
      */
     private boolean addWorker(Runnable firstTask, boolean core) {
@@ -1105,13 +1210,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             int rs = runStateOf(c);
 
             // Check if queue empty only if necessary.
-            if (rs >= SHUTDOWN &&
-                ! (rs == SHUTDOWN &&
-                   firstTask == null &&
-                   ! workQueue.isEmpty()))
+            // 如果池的状态是销毁状态 那么 如果传递进来的firstTask 不为NULL 和 workQueue
+            if (rs >= SHUTDOWN && ! (rs == SHUTDOWN && firstTask == null && ! workQueue.isEmpty()))
                 return false;
 
-            for (;;) {
+            for (;;) {  // 增加ctl的 wc 使用的是自旋增加
                 int wc = workerCountOf(c);
                 if (wc >= CAPACITY ||
                     wc >= (core ? corePoolSize : maximumPoolSize))
@@ -1119,7 +1222,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 if (compareAndIncrementWorkerCount(c))
                     break retry;
                 c = ctl.get();  // Re-read ctl
-                if (runStateOf(c) != rs)
+                if (runStateOf(c) != rs) // 如果状态发生了改变 也退出
                     continue retry;
                 // else CAS failed due to workerCount change; retry inner loop
             }
@@ -1140,8 +1243,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     // shut down before lock acquired.
                     int rs = runStateOf(ctl.get());
 
-                    if (rs < SHUTDOWN ||
-                        (rs == SHUTDOWN && firstTask == null)) {
+                    if (rs < SHUTDOWN || (rs == SHUTDOWN && firstTask == null)) {
                         if (t.isAlive()) // precheck that t is startable
                             throw new IllegalThreadStateException();
                         workers.add(w);
@@ -1194,7 +1296,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * it exited due to user task exception or if fewer than
      * corePoolSize workers are running or queue is non-empty but
      * there are no workers.
-     *
+     * 对即将死亡的工作线程进行清理和记录。此方法仅从工作线程中调用。除非设置了 completedAbruptly，
+     * 否则假定 workerCount 已经被调整以考虑到线程的退出。此方法从工作线程集中移除线程，并且
+     * 可能会终止线程池或替换工作线程，这取决于它是由于用户任务异常退出，还是因为运行的工作线程少于
+     * corePoolSize 或者队列非空但没有工作线程在运行。
      * @param w the worker
      * @param completedAbruptly if the worker died due to user exception
      */
@@ -1205,23 +1310,42 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         final ReentrantLock mainLock = this.mainLock;
         mainLock.lock();
         try {
-            completedTaskCount += w.completedTasks;
+            completedTaskCount += w.completedTasks; //上传完成数
             workers.remove(w);
         } finally {
             mainLock.unlock();
         }
 
-        tryTerminate();
+        tryTerminate(); //检查线程池状态 如果符合线程池终止条件就终止线程池
 
         int c = ctl.get();
-        if (runStateLessThan(c, STOP)) {
-            if (!completedAbruptly) {
+        if (runStateLessThan(c, STOP)) { // 如果状态是处于runing 或者是通知停止
+            /*
+             * 当一个工作线程退出时，此方法用于判断是否需要替换该线程。
+             * 只有当线程池状态小于 STOP（即处于 RUNNING 或 SHUTDOWN）时，才会考虑替换线程。
+             *
+             * 1. 如果工作线程是因为异常突然退出（completedAbruptly 为 true），
+             *    那么线程池将尝试添加一个新的非核心工作线程。
+             *
+             * 2. 如果工作线程正常退出（completedAbruptly 为 false）：
+             *    - 首先计算线程池应保持的最小线程数。
+             *      如果 allowCoreThreadTimeOut 为 true，则最小线程数可以为 0；
+             *      否则，最小线程数至少为 corePoolSize。
+             *    - 如果最小线程数为 0 但任务队列不为空，最小线程数至少应为 1，
+             *      以确保有线程可用于处理这些任务。
+             *    - 如果当前活跃的工作线程数大于或等于计算出的最小线程数，则不需要替换线程。
+             *
+             * 3. 在以上条件下，如果确定需要添加新线程，将会添加一个非核心工作线程（addWorker(null, false)）。
+             *    这样做是为了确保线程池能够持续处理队列中的任务，特别是在动态负载或线程池关闭过程中。
+             */
+            if (!completedAbruptly) { //如果是false 也就是当前线程遇到了中断
                 int min = allowCoreThreadTimeOut ? 0 : corePoolSize;
                 if (min == 0 && ! workQueue.isEmpty())
                     min = 1;
-                if (workerCountOf(c) >= min)
+                if (workerCountOf(c) >= min) //无需替换
                     return; // replacement not needed
             }
+            //如果不是就新增一个非核心工作者
             addWorker(null, false);
         }
     }
@@ -1261,8 +1385,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             // Are workers subject to culling?
             boolean timed = allowCoreThreadTimeOut || wc > corePoolSize;
 
-            if ((wc > maximumPoolSize || (timed && timedOut))
-                && (wc > 1 || workQueue.isEmpty())) {
+            if ((wc > maximumPoolSize || (timed && timedOut)) && (wc > 1 || workQueue.isEmpty())) {
                 if (compareAndDecrementWorkerCount(c))
                     return null;
                 continue;
@@ -1322,25 +1445,97 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * information as we can provide about any problems encountered by
      * user code.
      *
+     * * 工作线程的主要运行循环。反复从队列中获取任务并执行它们，同时处理多种问题：
+     *  *
+     *  * 1. 我们可能会以一个初始任务开始，这种情况下我们不需要获取第一个任务。
+     *  *    否则，只要线程池运行中，我们就通过 getTask 获取任务。
+     *  *    如果它返回 null，则由于线程池状态或配置参数的变化，工作线程将退出。
+     *  *    其他退出原因来自外部代码中抛出的异常，在这种情况下 completedAbruptly 为 true，
+     *  *    这通常导致 processWorkerExit 替换此线程。
+     *  *
+     *  * 2. 在执行任何任务之前，首先获取锁，以防止在任务执行期间发生其他线程池中断，
+     *  *    然后我们确保除非线程池正在停止，否则该线程不会设置中断。
+     *  *
+     *  * 3. 每个任务运行之前都会调用 beforeExecute，它可能抛出异常，
+     *  *    这种情况下我们会使线程死亡（以 completedAbruptly 为 true 中断循环）而不处理任务。
+     *  *
+     *  * 4. 假设 beforeExecute 正常完成，我们执行任务，收集其抛出的任何异常，以发送给 afterExecute。
+     *  *    我们分别处理 RuntimeException、Error（规范保证我们能捕获这两种异常）以及任意 Throwables。
+     *  *    因为我们不能在 Runnable.run 中重新抛出 Throwables，我们将它们在出口处（到线程的 UncaughtExceptionHandler）封装在 Error 之内。
+     *  *    任何抛出的异常也会保守地导致线程死亡。
+     *  *
+     *  * 5. task.run 完成后，我们调用 afterExecute，它也可能抛出异常，这也会导致线程死亡。
+     *  *    根据 JLS 第 14.20 节，如果 task.run 抛出异常，这个异常将是生效的。
+     *  *
+     *  * 异常机制的总体效果是 afterExecute 和线程的 UncaughtExceptionHandler 尽可能准确地了解用户代码遇到的任何问题。
+     *  *
+     * runWorker 方法的主要工作流程
+     * 处理初始任务：如果有一个初始任务（在创建工作线程时指定），则先执行这个任务。否则，从任务队列中获取任务。
+     *
+     * 任务获取循环：工作线程反复从任务队列中获取任务并执行。这个循环会一直持续，直到 getTask 方法返回 null（表示没有更多任务或线程池正在关闭）。
+     *
+     * 锁和线程中断：在执行每个任务前，工作线程会获取一个锁，以确保在任务执行期间不会被其他线程池操作中断。此外，除非线程池正在关闭，否则工作线程不会设置中断标志。
+     *
+     * 执行任务前后的钩子方法：
+     *
+     * beforeExecute：在每个任务执行前调用。如果这个方法抛出异常，工作线程将终止，不会执行该任务。
+     * afterExecute：在每个任务执行后调用。如果这个方法抛出异常，工作线程也将终止。
+     * 异常处理：
+     *
+     * 在执行任务时，如果任务代码抛出异常（如 RuntimeException 或 Error），则这些异常会被捕获并传递给 afterExecute 方法和线程的 UncaughtExceptionHandler。
+     * 如果任务执行过程中抛出异常，或者 beforeExecute/afterExecute 方法抛出异常，工作线程会因此终止。
+     * 线程替换：如果工作线程因异常终止（completedAbruptly 为 true），线程池会尝试替换这个线程，以保持线程池中线程的数量。
+     *
+     *
+     *
+     * ******************************关于对中断的支持*****************************
+     * 在 Java 线程池（ThreadPoolExecutor）中，runWorker 方法的 Worker 类使用锁（基于 AbstractQueuedSynchronizer，AQS）来管理工作线程的中断策略和任务执行的安全性。以下是对其关键方面的专业总结：
+     *
+     * 锁的使用目的
+     * 响应中断：
+     *
+     * 在工作线程开始执行任务前，通过调用 unlock() 方法，线程被设置为可中断状态。这允许线程在开始执行任务之前响应来自线程池的中断信号，例如在线程池关闭时。
+     * 这种设计确保线程在开始执行新任务之前可以安全地检查并响应线程池的状态变化。
+     * 保护任务执行：
+     *
+     * 任务开始执行时，通过 lock() 方法重新加锁，确保任务在执行过程中不会被中断。这保护了正在执行的任务，使其能够不受干扰地完成。
+     * 加锁机制避免了正在执行的任务由于外部中断而产生的不一致性或非预期行为。
+     * 中断处理流程
+     * 中断策略：runWorker 方法在执行任务之前检查线程池的状态和当前线程的中断状态。如果发现线程池正在停止，并且当前线程还未被中断，那么方法会主动中断该线程。
+     * 这样做是为了确保线程能够及时响应线程池的停止命令。
+     * 异常处理和任务循环
+     * 异常管理：任务执行中的异常被捕获并通过 afterExecute 方法进行处理。这提供了一个机会来处理运行时异常和错误，同时保持了工作线程的稳定性。
+     * 循环执行：工作线程持续从任务队列中获取并执行任务，直到 getTask() 返回 null（表示没有更多任务或线程池正在关闭）。
+     * 结论
+     * runWorker 方法的锁机制在工作线程中起着至关重要的作用，确保了在保护任务执行的同时，线程能够及时安全地响应中断信号。
+     * 这种设计体现了对并发执行环境中稳定性和安全性的深思熟虑，是 Java 线程池高效、稳健运行的关键。
+     *
      * @param w the worker
      */
     final void runWorker(Worker w) {
-        Thread wt = Thread.currentThread();
-        Runnable task = w.firstTask;
-        w.firstTask = null;
+        Thread wt = Thread.currentThread(); //获得当前线程 =  w.thread 只是一种代理保证责任的分明
+        Runnable task = w.firstTask; // task
+        w.firstTask = null; // 中断w中first task 的连接
+        // 这里为什么要释放AQS锁 ?
         w.unlock(); // allow interrupts
         boolean completedAbruptly = true;
         try {
+            //如果task 是NULL 就证明此Worker 不是新建的 而是已经再运作当中的 那么尝试从队列中获取任务
             while (task != null || (task = getTask()) != null) {
-                w.lock();
+                w.lock(); // 上执行锁 保证run不被破坏
                 // If pool is stopping, ensure thread is interrupted;
                 // if not, ensure thread is not interrupted.  This
                 // requires a recheck in second case to deal with
                 // shutdownNow race while clearing interrupt
-                if ((runStateAtLeast(ctl.get(), STOP) ||
-                     (Thread.interrupted() &&
-                      runStateAtLeast(ctl.get(), STOP))) &&
-                    !wt.isInterrupted())
+                /**
+                 * 在 ThreadPoolExecutor 的上下文中，这两个方法的配合使用是为了处理线程池关闭时的特定情况：
+                 *
+                 * 当线程池关闭时（例如调用了 shutdownNow()），所有工作线程会被中断。
+                 * 工作线程在执行任务时会周期性地检查自己的中断状态。
+                 * 如果 Thread.interrupted() 返回 true，则表明线程被中断了，此时会清除中断状态。
+                 * 紧接着，!Thread.currentThread().isInterrupted() 用于再次确认线程的当前中断状态。如果线程在清除中断状态后又被中断（可能是因为其他原因或线程池的进一步操作），则需要采取相应的行动。
+                 */
+                if ((runStateAtLeast(ctl.get(), STOP) || (Thread.interrupted() && runStateAtLeast(ctl.get(), STOP))) && !wt.isInterrupted())
                     wt.interrupt();
                 try {
                     beforeExecute(wt, task);
@@ -1364,7 +1559,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             }
             completedAbruptly = false;
         } finally {
-            processWorkerExit(w, completedAbruptly);
+            //注意此处执行的环境是queue.isEmpty 或者遇到错误 completedAbruptly 的意义是感知循环作业的完成是正常完成还是异常完成
+            processWorkerExit(w, completedAbruptly); //检查是否是中断退出
         }
     }
 
@@ -1563,19 +1759,19 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          * and so reject the task.
          */
         int c = ctl.get();
-        if (workerCountOf(c) < corePoolSize) {
-            if (addWorker(command, true))
+        if (workerCountOf(c) < corePoolSize) { //如果当然工作数小于corePoolSize
+            if (addWorker(command, true)) //直接尝试新增核心线程工作者
                 return;
-            c = ctl.get();
+            c = ctl.get(); //如果添加核心线程工作者失败 那就重新检查ctl
         }
-        if (isRunning(c) && workQueue.offer(command)) {
-            int recheck = ctl.get();
-            if (! isRunning(recheck) && remove(command))
-                reject(command);
-            else if (workerCountOf(recheck) == 0)
+        if (isRunning(c) && workQueue.offer(command)) { //如果池是运行状态 尝试入taskQueue
+            int recheck = ctl.get(); // 如果入成功了 重新检查ctl
+            if (! isRunning(recheck) && remove(command)) // 如果是非运行状态 并且从taskQueue删除成功了
+                reject(command); // 拒绝此任务
+            else if (workerCountOf(recheck) == 0) // 是为了解决极端情况下 线程退出的问题 1: keepLive 2: 执行时未捕捉到的异常
                 addWorker(null, false);
         }
-        else if (!addWorker(command, false))
+        else if (!addWorker(command, false)) //添加非核心worker失败
             reject(command);
     }
 
